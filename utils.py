@@ -31,7 +31,10 @@ def variable_summaries(var, name):
     3. min
     4. max
     And the histogram of var.
-    Returns the defined summaries in a list
+    Returns the defined summaries in a list.
+    The returned value can be discarted if the function has been called inside the default graph.
+
+    Remeber to call tf.merge_all_summaries() before tf.initialize_all_variables()
     """
 
     with tf.name_scope("summaries"):
@@ -51,11 +54,11 @@ def weight(shape, name):
     """ weight returns a tensor with the requested shape, initialized with
     random values.
     Creates baisc summaries too.
-    Returns the weight tensor and the [summaries]"""
+    Returns the weight tensor"""
     w = tf.get_variable(
         name, shape, initializer=tf.random_normal_initializer())
-    summaries = variable_summaries(w, w.name)
-    return w, summaries
+    _ = variable_summaries(w, w.name)
+    return w
 
 
 def kernels(shape, name):
@@ -64,28 +67,28 @@ def kernels(shape, name):
     for the learned filters visualization if the weight depth is 1, 2 or 3.
     shape should be in the form [ Y, X, Depth, NumKernels ]
     """
-    w, summaries = weight(shape, name)
+    w = weight(shape, name)
 
-    with tf.name_scope("summaries"):
-        if shape[2] in (1, 3, 4):
+    if shape[2] in (1, 3, 4):
+        with tf.name_scope("summaries"):
             num_kernels = shape[3]
             depth = shape[2]
             max_images = int(num_kernels / depth)
-            summaries.append(tf.image_summary(name,
-                                              tf.reshape(
-                                                  w, [num_kernels, shape[
-                                                      0], shape[1], depth]),
-                                              max_images=max_images))
-    return w, summaries
+            tf.image_summary(name,
+                             tf.reshape(w, [num_kernels, shape[0], shape[1],
+                                            depth]),
+                             max_images=max_images)
+    return w
 
 
 def bias(shape, name, init_val=0.0):
     """ bias returns a tensor with the requested shape, initialized with init_val.
     Creates summaries too.
-    Returns the weight and the [summaries]"""
+    Returns the bias"""
     b = tf.get_variable(
         name, shape, initializer=tf.constant_initializer(init_val))
-    return b, variable_summaries(b, b.name)
+    _ = variable_summaries(b, b.name)
+    return b
 
 
 def kernels_on_grid_summary(kernel, name):
