@@ -52,11 +52,11 @@ def variable_summaries(var, name):
 
 def weight(shape, name):
     """ weight returns a tensor with the requested shape, initialized with
-    random values.
+    the xavier initializer. TODO!!
     Creates baisc summaries too.
     Returns the weight tensor"""
     w = tf.get_variable(
-        name, shape, initializer=tf.random_normal_initializer())
+        name, shape, initializer=tf.random_uniform_initializer())
     _ = variable_summaries(w, w.name)
     return w
 
