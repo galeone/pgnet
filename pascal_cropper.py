@@ -7,8 +7,10 @@ Outputs the average input widht and height
 import xml.etree.ElementTree as etree
 import sys
 import os
-import cv2
 import csv
+from collections import defaultdict
+import math
+import cv2
 
 classes = ["aeroplane", "bicycle", "bird", "boat", "bottle", "bus", "car",
            "cat", "chair", "cow", "diningtable", "dog", "horse", "motorbike",
@@ -37,6 +39,49 @@ class cd:
         os.chdir(self.savedPath)
 
 
+field_names = ["file", "width", "height", "label"]
+
+
+def split_dataset(base_path):
+    """Split the out_path/ts.csv file into train and test csv files
+    The distribution is 2/3 train, 1/3 validation for every class."""
+    # create a dictionary of list
+    # every list contains the rows for the specified label
+    labels = defaultdict(list)
+    with open(base_path + "/ts.csv", 'r') as ts_file:
+        reader = csv.DictReader(ts_file)
+        for row in reader:
+            label = row["label"]
+            labels[label].append(row)
+
+    train_file = open(base_path + "/train.csv", "w")
+    validation_file = open(base_path + "/validation.csv", "w")
+
+    tf_writer = csv.DictWriter(train_file, field_names)
+    vf_writer = csv.DictWriter(validation_file, field_names)
+
+    tf_writer.writeheader()
+    vf_writer.writeheader()
+
+    for label in labels:
+        items_count = len(labels[label])
+        validation_count = math.ceil(items_count / 3)
+
+        print("Label: {}\n\tValidation: {}\n\tTrain: {}".format(
+            label, validation_count, items_count - validation_count))
+
+        while validation_count >= 0:
+            vf_writer.writerow(labels[label].pop())
+            validation_count -= 1
+
+        while labels[label] != []:
+            tf_writer.writerow(labels[label].pop())
+
+    train_file.close()
+    validation_file.close()
+    return 0
+
+
 def main(argv):
     """ main """
     if len(argv) != 2:
@@ -58,9 +103,11 @@ def main(argv):
 
     out_path = os.path.abspath(argv[1])
 
+    if os.path.exists(out_path + "/ts.csv"):
+        return split_dataset(out_path)
+
     with open(out_path + '/ts.csv', mode='w') as csv_file:
         # header
-        field_names = ["file", "width", "height", "label"]
         writer = csv.DictWriter(csv_file, field_names)
         writer.writeheader()
 
@@ -103,7 +150,7 @@ def main(argv):
 
                     i += 1
 
-                    # save file and append line to csv
+                    # save file and append row to csv
                     cv2.imwrite(out_path + "/" + image_file, roi)
                     writer.writerow({"file": image_file,
                                      "width": width,
@@ -112,6 +159,8 @@ def main(argv):
 
             print("Average width & height")
             print(int(float(avg_shape[0] / i)), int(float(avg_shape[1] / i)))
+
+            return split_dataset(out_path)
 
 
 if __name__ == '__main__':
