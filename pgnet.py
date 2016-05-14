@@ -10,6 +10,9 @@ Conventions:
     var_: placeholder
 """
 
+INPUT_SIDE = 184
+INPUT_DEPTH = 3
+
 
 def padder(input_v, output_v):
     """Extract the borders from input_v.
@@ -37,8 +40,6 @@ def padder(input_v, output_v):
     reduced_width = output_v.get_shape()[2].value
     reduced_height = output_v.get_shape()[1].value
 
-    print(width, height, reduced_width, reduced_height)
-
     assert (width - reduced_width) % 2 == 0
     assert (height - reduced_height) % 2 == 0
     assert output_depth >= input_depth
@@ -52,35 +53,26 @@ def padder(input_v, output_v):
     input_collapsed = tf.reduce_mean(input_v,
                                      reduction_indices=[3],
                                      keep_dims=True)
-    print(input_collapsed)
 
     # lets make the input depth equal to the output depth
     input_expanded = input_collapsed
-    print(input_expanded)
-    for i in range(output_depth - 1):
+    for _ in range(output_depth - 1):
         input_expanded = tf.concat(3, [input_expanded, input_collapsed])
-    print(input_expanded)
 
     padding_top = tf.slice(input_expanded, [0, 0, width_diff, 0],
                            [-1, height_diff, reduced_width, -1])
-    print(padding_top)
     padding_bottom = tf.slice(input_expanded,
                               [0, height - height_diff, width_diff, 0],
                               [-1, height_diff, reduced_width, -1])
-    print(padding_bottom)
 
     padded = tf.concat(1, [padding_top, output_v, padding_bottom])
-    print(padded)
 
     padding_left = tf.slice(input_expanded, [0, 0, 0, 0], [-1, height,
                                                            width_diff, -1])
-    print(padding_left)
     padding_right = tf.slice(input_expanded, [0, 0, width - width_diff, 0],
                              [-1, height, height_diff, -1])
-    print(padding_right)
 
     padded = tf.concat(2, [padding_left, padded, padding_right])
-    print(padded)
     return padded
 
 
@@ -120,7 +112,7 @@ def atrous_layer(name, x, kernels_shape, rate):
         name=name)
 
 
-def atrous_block(x, kernel_side, rate, num_kernels, name):
+def atrous_block(x, kernel_side, rate, num_kernels, exp, name):
     """ atrous block returns 4 atrous convoltion with padded boders as explained below
     params:
         x: [batch_size, height, width, depth]
@@ -129,9 +121,10 @@ def atrous_block(x, kernel_side, rate, num_kernels, name):
         num_kernels: is the number of kernels to learn for the first atrous conv.
             this number crease with an exponential progression across the 4 layer
             Thus: layer1: num_kernels
-                layer2: num_nernels *=2
-                layer3: num_lernels *=2
-            num_kernels should be a power of 2.
+                layer2: num_nernels *= exp
+                layer3: num_lernels *= exp
+            num_kernels should be a power of exp, if you want exponential progression.
+        exp: see num_kernels
         name: is the block name
 
     A single image in the out volume is ( (184 -5)/(stride=1) + 1 = 180 )² x 2**6
@@ -166,31 +159,33 @@ def atrous_block(x, kernel_side, rate, num_kernels, name):
         # 2
         padded = padder(x, conv1)
         prev_num_kernels = num_kernels
-        num_kernels *= 2
+        num_kernels *= exp
         kernels_shape[2] = prev_num_kernels
         kernels_shape[3] = num_kernels
         conv2 = atrous_layer(name + "/conv2", padded, kernels_shape, 2)
         # 3
         padded = padder(x, conv2)
         prev_num_kernels = num_kernels
-        num_kernels *= 2
+        num_kernels *= exp
         kernels_shape[2] = prev_num_kernels
         kernels_shape[3] = num_kernels
         conv3 = atrous_layer(name + "/conv3", padded, kernels_shape, 2)
         # 4
         padded = padder(x, conv3)
         prev_num_kernels = num_kernels
-        num_kernels *= 2
+        num_kernels *= exp
         kernels_shape[2] = prev_num_kernels
         kernels_shape[3] = num_kernels
         conv4 = atrous_layer(name + "/conv4", padded, kernels_shape, 2)
         return conv4
 
 
-def get(image_):
+def get(image_, keep_prob=1.0, num_class=20):
     """
     @input:
         image_ is a tensor with shape [-1, widht, height, depth]
+        keep_prob: dropput probability. Set it to something < 1.0 during train
+        num_class: number of class to claffify.
 
     As the net goes deeper, increase the number of filters (using power of 2
     in order to optimize GPU performance).
@@ -211,12 +206,119 @@ def get(image_):
         # at the end of block1, num_kernels has increased to: 2**(6+4 - 1) = 2**9 = 512
         block1 = atrous_block(
             image_, kernel_side,
-            2, num_kernels, name="block1")
+            2, num_kernels,
+            exp=2, name="block1")
         num_kernels = 2**9
-        block2 = atrous_block(
-            block1, kernel_side,
-            2, num_kernels, name="block2")
+    #output: 180x180x512
+    print(block1)
 
-        out = block2
+    # now that the border contributed 4 times
+    # we can reduce dimensionality of the block1 output.
+    # we don't use max pool, but we increase the rate parameter of the atrous convolution
+    # in order to preserve the spatial relations that extists between input and output volumes
+    # I want to hald the dimension of the input volume (max pooling like).
+    # 90 = 180 - filer_size + 1 -> filer_size = 180-90 +1 = 91
+    # new filter side = side + (side - 1)*(rate -1)
+    # 91 = 3 + (3 - 1)*(rate -1) -> rate = 90/2 = 45
+    # Thus the new widht and height is: 180 - 2*45 = 90
+    # That the spatial extent of a polling with a 2x2 window with a stride of 2.
+    # The diffence is that the pooling is not learneable, the filter is.
+    pool1 = atrous_layer("atrous_pooling_1", block1,
+                         [kernel_side, kernel_side, num_kernels,
+                          num_kernels], 45)
+    #output: 90x90x512
+    print(pool1)
+
+    # normalization is useless
+    """
+    CS231n: http://cs231n.github.io/convolutional-networks/
+    Many types of normalization layers have been proposed for use in ConvNet architectures, sometimes
+    with the intentions of implementing inhibition schemes observed in the biological brain.
+    However, these layers have recently fallen out of favor because in practice their contribution has
+    been shown to be minimal, if any.
+    For various types of normalizations, see the discussion in Alex Krizhevsky's cuda-convnet library API.
+    """
+
+    # repeat the l1, using pool1 as input. Do not incrase the number of learned filter
+    # Preserve input depth
+    with tf.variable_scope("l2"):
+        block2 = atrous_block(
+            pool1, kernel_side,
+            2, num_kernels,
+            exp=1, name="block2")
+        #output: lxlx512, l = (90 -5)/(stride=1) + 1 = 86
+        #output: 86x86x512
+        print(block2)
+
+    # reduce 4 times the input volume
+    # 86/4 = 22
+    # 22 = 86 - filter_size + 1 -> filter_size = 86-22+1 = 65
+    # new filter side = side + (side -1)*(rate -1)
+    # 65 = 3 + (3 - 1)*(rate -1) -> rate = 64/2 = 32
+
+    # 86/2 = 43 -> is odd, use 42
+    # 42 = 86 - filter_side + 1 -> filter_side = 86-42 +1 = 45
+    # new filter side = side + (side -1)*(rate -1)
+    # 45 = 3 + (3 - 1)*(rate -1) -> rate = 42/2 = 22
+    pool2 = atrous_layer("atrous_pooling_2", block2,
+                         [kernel_side, kernel_side, num_kernels,
+                          num_kernels], 22)
+    #output: 42x42x512
+    print(pool2)
+
+    with tf.variable_scope("l3"):
+        block3 = atrous_block(
+            pool2, kernel_side,
+            2, num_kernels,
+            exp=1, name="block3")
+
+        # l = (42-5) +1 = 38
+        #output: 38x38x512
+    print(block3)
+
+    # 38/2 = 19
+    # 19 = 38 - filter_side + 1 -> filter_side = 38-19 +1 = 20
+    # new filter side = side + (side -1)*(rate -1)
+    # 20 = 3 + (3 - 1)*(rate -1) -> rate = 19/2 = 9.5 -> 10 -> 18x18
+    pool3 = atrous_layer("atrous_pooling_3", block3,
+                         [kernel_side, kernel_side, num_kernels,
+                          num_kernels], 10)
+    #output: 18x18x512
+    print(pool3)
+
+    # fully convolutional layer
+    # take the 85x85x512 input and project it to a 1x1x1024 dim space
+    with tf.variable_scope('fc1'):
+        W_fc1 = utils.kernels([18, 18, 512, 1024], "W")
+        b_fc1 = utils.bias([1024], "b")
+
+        h_fc1 = tf.nn.relu(
+            tf.add(
+                tf.nn.conv2d(pool3, W_fc1, [1, 1, 1, 1],
+                             padding='VALID'),
+                b_fc1),
+            name='h')
+        # output: 1x1x1024
+        print(h_fc1)
+
+    with tf.variable_scope('dropout') as scope:
+        dropoutput = tf.nn.dropout(h_fc1, keep_prob, name=scope.name)
+        print(dropoutput)
+        # output: 1x1x1024
+
+        # softmax(WX + n)
+    with tf.variable_scope('softmax_linear') as scope:
+        # convert this 1024 featuers to num_class (usually 20)
+        W_fc2 = utils.kernels([1, 1, 1024, num_class], "W")
+        b_fc2 = utils.bias([num_class], "b")
+        out = tf.add(
+            tf.nn.conv2d(dropoutput,
+                         W_fc2, [1, 1, 1, 1],
+                         padding='VALID'),
+            b_fc2,
+            name=scope.name)
+        # outout: 1x1x20 if the input has been properly scaled
+        # otherwise is a map
+        print(out)
 
     return out
