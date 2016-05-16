@@ -16,8 +16,8 @@ init = tf.initialize_all_variables()
 with tf.Session() as sess:
     sess.run(init)
     reshaped_images = tf.image.resize_nearest_neighbor(
-        tf.reshape(image, [-1, image.shape[0], image.shape[1], image.shape[2]
-                           ]).eval(),
+        tf.reshape(image, [-1, image.shape[0], image.shape[1],
+                           image.shape[2]]).eval(),
         [pgnet.INPUT_SIDE, pgnet.INPUT_SIDE]).eval()
 
     out = sess.run(model, feed_dict={images_: reshaped_images})
