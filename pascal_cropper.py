@@ -1,8 +1,9 @@
-"""./pascal_cropper.py PASCAL_2012/VOCdevkit/VOC2012 cropped_dataset
+"""./pascal_cropper.py PASCAL_2012/VOCdevkit/VOC2012 cropped_dataset train=True
 Extracts the 20 categories from the PASCAL dataset (argv[1]).
 Crop every image to annotated bounding boxes as described in argv[1]/Annotations/
 Creates the cropped_dataset/ts.csv file.
-Outputs the average input widht and height
+If train (argv[3]) is present, splits the ts.csv file in train.csv and validation.csv.
+Outputs the average input widht and height.
 """
 import xml.etree.ElementTree as etree
 import sys
@@ -47,6 +48,7 @@ def split_dataset(base_path):
     The distribution is 2/3 train, 1/3 validation for every class."""
     # create a dictionary of list
     # every list contains the rows for the specified label
+    print("Splitting dataset...")
     labels = defaultdict(list)
     with open(base_path + "/ts.csv", 'r') as ts_file:
         reader = csv.DictReader(ts_file)
@@ -84,10 +86,14 @@ def split_dataset(base_path):
 
 def main(argv):
     """ main """
-    if len(argv) != 2:
-        print("usage: pascal_cropper.py /path/of/VOC<year> /path/of/output",
-              file=sys.stderr)
+    len_argv = len(argv)
+    if len_argv not in (2, 3):
+        print(
+            "usage: pascal_cropper.py /path/of/VOC<year> /path/of/output train=True",
+            file=sys.stderr)
         return 1
+
+    train = len_argv == 3
 
     if not os.path.exists(argv[0]):
         print("{} does not exists".format(argv[0]))
@@ -103,7 +109,8 @@ def main(argv):
 
     out_path = os.path.abspath(argv[1])
 
-    if os.path.exists(out_path + "/ts.csv"):
+    if train and os.path.exists(out_path + "/ts.csv") and not os.path.exists(
+            out_path + "/train.csv"):
         return split_dataset(out_path)
 
     with open(out_path + '/ts.csv', mode='w') as csv_file:
@@ -125,9 +132,16 @@ def main(argv):
                 for obj in root.iter('object'):
                     # skip difficult & object.name not in classes
                     label = obj.find('name').text
-                    if int(obj.find(
-                            'difficult').text) == 1 or label not in classes:
-                        continue
+
+                    if train:
+                        if label not in classes or int(obj.find(
+                            'difficult').text) == 1:
+                            continue
+                    else:
+                        # some image in the test dataset doesn't have
+                        # the difficult parameter. Check only the class
+                        if label not in classes:
+                            continue
 
                     bb = obj.find('bndbox')
                     rect = [0, 0, 0, 0]
@@ -150,17 +164,20 @@ def main(argv):
 
                     i += 1
 
+                    # use numeric id for label in csv
+                    label_id = classes.index(label)
+
                     # save file and append row to csv
                     cv2.imwrite(out_path + "/" + image_file, roi)
                     writer.writerow({"file": image_file,
                                      "width": width,
                                      "height": height,
-                                     "label": label})
+                                     "label": label_id})
 
             print("Average width & height")
             print(int(float(avg_shape[0] / i)), int(float(avg_shape[1] / i)))
 
-            return split_dataset(out_path)
+            return split_dataset(out_path) if train else 0
 
 
 if __name__ == '__main__':

@@ -1,7 +1,6 @@
 import csv
 import tensorflow as tf
 
-
 # The side of the reshaped example (SIDExSIDE)
 SIDE = 180
 # The depth of the example
@@ -43,9 +42,9 @@ def read_cropped_pascal(queue):
     image = tf.image.decode_jpeg(image_path, channels=DEPTH)
 
     #reshape to a 4-d tensor
-    image = tf.reshape(image,
-                       [1, image.get_shape()[0].value,
-                        image.get_shape()[1].value, image.get_shape()[2].value])
+    image = tf.reshape(image, [1, image.get_shape()[0].value,
+                               image.get_shape()[1].value,
+                               image.get_shape()[2].value])
 
     # now image is 4-D float32 tensor: [1,SIDE,SIDE, DEPTH]
     image = tf.image.resize_nearest_neighbor(image, [SIDE, SIDE])
