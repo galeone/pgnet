@@ -135,7 +135,7 @@ def main(argv):
 
                     if train:
                         if label not in classes or int(obj.find(
-                            'difficult').text) == 1:
+                                'difficult').text) == 1:
                             continue
                     else:
                         # some image in the test dataset doesn't have

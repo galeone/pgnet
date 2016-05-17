@@ -1,5 +1,6 @@
 import tensorflow as tf
 import utils
+import pascal_input
 """
 The model is fully convolutional, thus it accepts batch of images of any size and produces
 a spatial map of vector.
@@ -10,8 +11,16 @@ Conventions:
     var_: placeholder
 """
 
+# dataset constants
 INPUT_SIDE = 184
 INPUT_DEPTH = 3
+NUM_CLASS = 20
+
+# train constants
+BATCH_SIZE = 128
+NUM_EPOCHS_PER_DECAY = 350.0  # Epochs after which learning rate decays.
+LEARNING_RATE_DECAY_FACTOR = 0.1  # Learning rate decay factor.
+INITIAL_LEARNING_RATE = 0.1  # Initial learning rate.
 
 
 def padder(input_v, output_v):
@@ -180,12 +189,11 @@ def atrous_block(x, kernel_side, rate, num_kernels, exp, name):
         return conv4
 
 
-def get(image_, keep_prob=1.0, num_class=20):
+def get(image_, keep_prob=1.0):
     """
     @input:
         image_ is a tensor with shape [-1, widht, height, depth]
         keep_prob: dropput probability. Set it to something < 1.0 during train
-        num_class: number of class to claffify.
 
     As the net goes deeper, increase the number of filters (using power of 2
     in order to optimize GPU performance).
@@ -196,6 +204,7 @@ def get(image_, keep_prob=1.0, num_class=20):
     @returns:
         unscaled_logists: spatial map of output vectors
     """
+    print(image_)
 
     kernel_side = 3
 
@@ -308,17 +317,73 @@ def get(image_, keep_prob=1.0, num_class=20):
 
         # softmax(WX + n)
     with tf.variable_scope('softmax_linear') as scope:
-        # convert this 1024 featuers to num_class (usually 20)
-        W_fc2 = utils.kernels([1, 1, 1024, num_class], "W")
-        b_fc2 = utils.bias([num_class], "b")
+        # convert this 1024 featuers to NUM_CLASS
+        W_fc2 = utils.kernels([1, 1, 1024, NUM_CLASS], "W")
+        b_fc2 = utils.bias([NUM_CLASS], "b")
         out = tf.add(
             tf.nn.conv2d(dropoutput,
                          W_fc2, [1, 1, 1, 1],
                          padding='VALID'),
             b_fc2,
             name=scope.name)
-        # outout: 1x1x20 if the input has been properly scaled
+        # output: (BATCH_SIZE)1x1xNUM_CLASS if the input has been properly scaled
         # otherwise is a map
         print(out)
 
     return out
+
+
+def loss(logits, labels):
+    """
+    Args:
+        logits: Logits from get().
+        labels: Labels from distorted_inputs or inputs(). 1-D tensor of shape [batch_size]
+
+    Returns:
+        Loss tensor of type float.
+    """
+
+    # reshape logits to a vector of NUM_CLASS elements
+    # -1 = every batch size
+    logits = tf.reshape(logits, [-1, NUM_CLASS])
+
+    labels = tf.cast(labels, tf.int64)
+
+    # cross_entropy across the batch
+    cross_entropy = tf.nn.sparse_softmax_cross_entropy_with_logits(
+        logits, labels, name="cross_entropy")
+    tf.scalar_summary('loss/cross_entropy', cross_entropy)
+
+    mean_cross_entropy = tf.reduce_mean(cross_entropy,
+                                        name="mean_cross_entropy")
+    tf.scalar_summary('loss/mean_cross_entropy', mean_cross_entropy)
+
+    return mean_cross_entropy
+
+
+def train(loss, global_step):
+    """
+    Creates an Optimizer (Gradient Descent) and use exponential decay of learning rate
+    Args:
+        loss: loss from loss()
+        global_step: integer variable counting the numer of traning steps processed
+
+    Returns:
+        train_op: of for training
+    """
+    num_batches_per_epoch = pascal_input.NUM_EXAMPLES_PER_EPOCH_FOR_TRAIN / BATCH_SIZE
+    decay_steps = int(num_batches_per_epoch * NUM_EPOCHS_PER_DECAY)
+
+    # decay the learning rate exponentially based on the number of steps
+    lr = tf.train.exponential_decay(
+        INITIAL_LEARNING_RATE,
+        global_step,
+        decay_steps,
+        LEARNING_RATE_DECAY_FACTOR,
+        # decay the learning rate at discrete intervals
+        staircase=True)
+
+    tf.scalar_summary('learning_rate', lr)
+
+    optimizer = tf.train.GradientDescentOptimizer(lr)
+    return optimizer.minimize(loss)

@@ -1,8 +1,8 @@
 import csv
+import os
 import tensorflow as tf
+import pgnet
 
-# The side of the reshaped example (SIDExSIDE)
-SIDE = 180
 # The depth of the example
 DEPTH = 3
 
@@ -12,16 +12,17 @@ NUM_EXAMPLES_PER_EPOCH_FOR_TRAIN = 23758
 NUM_EXAMPLES_PER_EPOCH_FOR_EVAL = 11918
 
 
-def read_cropped_pascal(queue):
+def read_cropped_pascal(base_path, queue):
     """ Reads and parses files from the queue.
     Args:
+        base_path: a constant string tensor representing the path of the cropped dataset
         queue: A queue of strings in the format: file, widht, height, label
 
     Returns:
         An object representing a single example, with the following fields:
         key: a scalar string Tensor describing the filename & record number for this example.
-        label: a tensor string with the label
-        image: a [SIDE; SIDE, DEPTH] float32 tensor with the image data, resized with nn interpolation
+        label: a tensor int32 with the label
+        image: a [pgnet.INPUT_SIDE; pgnet.INPUT_SIDE, DEPTH] float32 tensor with the image data, resized with nn interpolation
     """
 
     class PASCALCroppedRecord(object):
@@ -30,42 +31,45 @@ def read_cropped_pascal(queue):
     result = PASCALCroppedRecord()
 
     # Reader for text lines
-    reader = tf.TextLineReader()
+    reader = tf.TextLineReader(skip_header_lines=True)
 
     # read a record from the queue
-    result.key, value = reader.read(queue)
+    result.key, row = reader.read(queue)
 
     # file,width,height,label
-    record_defaults = [[""], [0], [0], [""]]
+    record_defaults = [[""], [0], [0], [0]]
 
-    image_path, _, _, result.label = tf.decode_csv(value, record_defaults)
-    image = tf.image.decode_jpeg(image_path, channels=DEPTH)
+    image_path, _, _, result.label = tf.decode_csv(
+        row, record_defaults, field_delim=",")
 
-    #reshape to a 4-d tensor
-    image = tf.reshape(image, [1, image.get_shape()[0].value,
-                               image.get_shape()[1].value,
-                               image.get_shape()[2].value])
+    image_path = base_path + tf.constant("/") + image_path
+    image = tf.image.decode_jpeg(tf.read_file(image_path))
 
-    # now image is 4-D float32 tensor: [1,SIDE,SIDE, DEPTH]
-    image = tf.image.resize_nearest_neighbor(image, [SIDE, SIDE])
-    # remove the 1st dimension -> [SIDE, SIDE, DEPTH]
-    result.image = tf.squeeze(image)
+    #reshape to a 4-d tensor (required to resize)
+    image = tf.expand_dims(image, 0)
+
+    # now image is 4-D float32 tensor: [1,pgnet.INPUT_SIDE,pgnet.INPUT_SIDE, DEPTH]
+    image = tf.image.resize_nearest_neighbor(image, [pgnet.INPUT_SIDE,
+                                                     pgnet.INPUT_SIDE])
+    # remove the 1st dimension -> [pgnet.INPUT_SIDE, pgnet.INPUT_SIDE, DEPTH]
+    result.image = tf.reshape(image, [pgnet.INPUT_SIDE, pgnet.INPUT_SIDE,
+                                      DEPTH])
 
     return result
 
 
-def _image_and_label_batch(image, label, min_queue_examples, batch_size,
-                           shuffle):
+def _generate_image_and_label_batch(image, label, min_queue_examples,
+                                    batch_size, shuffle):
     """Construct a queued batch of images and labels.
     Args:
-      image: 3-D Tensor of [SIDE, SIDE, DEPTH] of type.float32.
-      label: 1-D Tensor of type string
+      image: 3-D Tensor of [pgnet.INPUT_SIDE, pgnet.INPUT_SIDE, DEPTH] of type.float32.
+      label: 1-D Tensor of type int32
       min_queue_examples: int32, minimum number of samples to retain
         in the queue that provides of batches of examples.
     batch_size: Number of images per batch.
     shuffle: boolean indicating whether to use a shuffling queue.
     Returns:
-    images: Images. 4D tensor of [batch_size, SIDE, SIDE, DEPTH] size.
+    images: Images. 4D tensor of [batch_size, pgnet.INPUT_SIDE, pgnet.INPUT_SIDE, DEPTH] size.
     labels: Labels. 1D tensor of [batch_size] size.
     """
 
@@ -93,22 +97,23 @@ def _image_and_label_batch(image, label, min_queue_examples, batch_size,
 
 
 def train_inputs(csv_path, batch_size):
-    with open(csv_path + '/train.csv', 'r') as csv_file:
-        # use dictreader to skip header line
-        reader = csv.DictReader(csv_file)
-        filenames = [
-            ','.join([row["file"], row["width"], row["heigth"], row["label"]])
-            for row in reader
-        ]
+    """Returns a batch of images from the train dataset.
+    Applies random distortion to the examples.
 
-    # prepend absolute path
-    filenames = [csv_path + '/' + line for line in filenames]
+    Args:
+        csv_path: path of the cropped pascal dataset
+        batch_size: Number of images per batch.
+    Returns:
+        images: Images. 4D tensor of [batch_size, pgnet.INPUT_SIDE, pgnet.INPUT_SIDE, DEPTH size.
+        labes: Labels. 1D tensor of [batch_size] size.
+    """
+    csv_path = os.path.abspath(os.path.expanduser(csv_path)).rstrip("/") + "/"
 
     # Create a queue that produces the filenames (and other atrributes) to read
-    queue = tf.train.string_input_producer(filenames)
+    queue = tf.train.string_input_producer([csv_path + "train.csv"])
 
     # Read examples from the queue
-    record = read_cropped_pascal(queue)
+    record = read_cropped_pascal(tf.constant(csv_path), queue)
 
     # Apply random distortions to the image
     distorted_image = tf.image.random_flip_left_right(record.image)
@@ -127,11 +132,11 @@ def train_inputs(csv_path, batch_size):
     print(
         'Filling queue with {} pascal cropped images before starting to train. '
         'This will take a few minutes.'.format(min_queue_examples))
-    return _image_and_label_batch(float_image,
-                                  record.label,
-                                  min_queue_examples,
-                                  batch_size,
-                                  shuffle=True)
+    return _generate_image_and_label_batch(float_image,
+                                           record.label,
+                                           min_queue_examples,
+                                           batch_size,
+                                           shuffle=True)
 
 
 def validation_inputs(csv_path, batch_size):
@@ -141,28 +146,16 @@ def validation_inputs(csv_path, batch_size):
         csv_path: path of the cropped pascal dataset
         batch_size: Number of images per batch.
     Returns:
-        images: Images. 4D tensor of [batch_size, SIDE, SIDE, DEPTH size.
+        images: Images. 4D tensor of [batch_size, pgnet.INPUT_SIDE, pgnet.INPUT_SIDE, DEPTH size.
         labes: Labels. 1D tensor of [batch_size] size.
     """
 
-    with open(csv_path + '/validation.csv', 'r') as csv_file:
-        # use dictreader to skip header line
-        reader = csv.DictReader(csv_file)
-        filenames = [
-            ','.join([row["file"], row["width"], row["heigth"], row["label"]])
-            for row in reader
-        ]
+    csv_path = os.path.abspath(os.path.expanduser(csv_path)).rstrip("/") + "/"
 
-    # prepend absolute path
-    filenames = [csv_path + '/' + line for line in filenames]
-
-    num_examples_per_epoch = NUM_EXAMPLES_PER_EPOCH_FOR_EVAL
-
-    # Create a queue that produces the filenames to read.
-    queue = tf.train.string_input_producer(filenames)
+    queue = tf.train.string_input_producer([csv_path + "validation.csv"])
 
     # Read examples from files in the filename queue.
-    record = read_cropped_pascal(queue)
+    record = read_cropped_pascal(tf.constant(csv_path), queue)
 
     # Subtract off the mean and divide by the variance of the pixels.
     float_image = tf.image.per_image_whitening(record.image)
@@ -173,8 +166,8 @@ def validation_inputs(csv_path, batch_size):
                              min_fraction_of_examples_in_queue)
 
     # Generate a batch of images and labels by building up a queue of examples.
-    return _image_and_label_batch(float_image,
-                                  record.label,
-                                  min_queue_examples,
-                                  batch_size,
-                                  shuffle=False)
+    return _generate_image_and_label_batch(float_image,
+                                           record.label,
+                                           min_queue_examples,
+                                           batch_size,
+                                           shuffle=False)
