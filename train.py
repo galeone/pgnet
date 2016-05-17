@@ -7,6 +7,7 @@
 #licenses expressed under Section 1.12 of the MPL v2.
 """train the model"""
 
+import argparse
 import os
 import sys
 import time
@@ -31,7 +32,7 @@ MAX_ITERATIONS = 10**100 + 1
 DISPLAY_STEP = 100
 
 
-def train():
+def train(args):
     """train model"""
 
     if not os.path.exists(SESSION_DIR):
@@ -41,26 +42,30 @@ def train():
 
     # if the trained model does not exist
     if not os.path.exists(TRAINED_MODEL_FILENAME):
-
         # train graph is the graph that contains the variable
-        train_graph = tf.Graph()
+        graph = tf.Graph()
 
-        # create a scope for the train_graph
-        with train_graph.as_default():
-            # get the train input
-            images, labels = pascal_input.train_inputs(CSV_PATH,
-                                                       pgnet.BATCH_SIZE)
-
-            # build a graph that computes the logits predictions from the model
+        # create a scope for the graph. Place operations on cpu:0
+        # if not otherwise specified
+        with graph.as_default(), tf.device('/cpu:0'):
+            # model dropout keep_prob placeholder
             keep_prob = tf.placeholder(tf.float32, name="keep_prob")
-            logits = pgnet.get(images, keep_prob)
-
-            # loss op
-            loss_op = pgnet.loss(logits, labels)
-
-            # train op
+            # train global step
             global_step = tf.Variable(0, trainable=False)
-            train_op = pgnet.train(loss_op, global_step)
+
+            with tf.device(args.device):
+                # get the train input
+                images, labels = pascal_input.train_inputs(CSV_PATH,
+                                                           pgnet.BATCH_SIZE)
+
+                # build a graph that computes the logits predictions from the model
+                logits = pgnet.get(images, keep_prob)
+
+                # loss op
+                loss_op = pgnet.loss(logits, labels)
+
+                # train op
+                train_op = pgnet.train(loss_op, global_step)
 
             # collect summaries
             summary_op = tf.merge_all_summaries()
@@ -68,8 +73,9 @@ def train():
             # tensor flow operator to initialize all the variables in a session
             init_op = tf.initialize_all_variables()
 
-            with tf.Session(config=tf.ConfigProto(
-                    allow_soft_placement=True)) as sess:
+            with tf.Session(
+                    config=tf.ConfigProto(allow_soft_placement=True,
+                                          log_device_placement=True)) as sess:
                 # initialize variables
                 sess.run(init_op)
 
@@ -134,8 +140,8 @@ def train():
                 # save train summaries to disk
                 summary_writer.flush()
 
-                # save model skeleton (the empty graf, its definition)
-                tf.train.write_graph(train_graph.as_graph_def(),
+                # save model skeleton (the empty graph, its definition)
+                tf.train.write_graph(graph.as_graph_def(),
                                      SESSION_DIR,
                                      "skeleton.pb",
                                      as_text=False)
@@ -151,4 +157,7 @@ def train():
 
 
 if __name__ == "__main__":
-    sys.exit(train())
+    # pylint: disable=C0103
+    parser = argparse.ArgumentParser(description="Train the model")
+    parser.add_argument("--device", default="/gpu:1")
+    sys.exit(train(parser.parse_args()))
