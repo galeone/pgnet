@@ -49,7 +49,8 @@ def train(args):
         # if not otherwise specified
         with graph.as_default(), tf.device('/cpu:0'):
             # model dropout keep_prob placeholder
-            keep_prob = tf.placeholder(tf.float32, name="keep_prob")
+            keep_prob_ = tf.placeholder(tf.float32, name="keep_prob")
+
             # train global step
             global_step = tf.Variable(0, trainable=False)
 
@@ -59,7 +60,7 @@ def train(args):
                                                            pgnet.BATCH_SIZE)
 
                 # build a graph that computes the logits predictions from the model
-                logits = pgnet.get(images, keep_prob)
+                logits = pgnet.get(images, keep_prob_)
 
                 # loss op
                 loss_op = pgnet.loss(logits, labels)
@@ -102,7 +103,7 @@ def train(args):
                     _, loss_val, gs_value = sess.run(
                         [train_op, loss_op, global_step],
                         feed_dict={
-                            keep_prob: 0.5
+                            keep_prob_: 0.5
                         })
 
                     duration = time.time() - start.time()
@@ -124,7 +125,9 @@ def train(args):
 
                         # create summary for this train step
                         summary_line = sess.run(summary_op,
-                                                feed_dict={keep_prob: 0.5})
+                                                feed_dict={
+                                                    keep_prob_: 0.5
+                                                })
                         # global_step in add_summary is the local step (thank you tensorflow)
                         summary_writer.add_summary(summary_line,
                                                    global_step=step)

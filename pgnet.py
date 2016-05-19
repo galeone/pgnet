@@ -23,84 +23,23 @@ LEARNING_RATE_DECAY_FACTOR = 0.1  # Learning rate decay factor.
 INITIAL_LEARNING_RATE = 0.1  # Initial learning rate.
 
 
-def padder(input_v, output_v):
-    """Extract the borders from input_v.
-    The borders size is the difference between output and input height and width.
-
-    If the input depth and the output depth is the same, the padding is made layer by layer.
-    eg: padding of layer with depth 1, will be attached to the output layer with depth 1 ecc
-
-    Othwerwise, if the output depth is greather than the input depth (thats the case in
-    convolutional neural networks, when output is series of images resulting from
-    the convolution of a set of kernels),
-    it pads every output layer with the average of the extract border of input.
-
-    input_v: a tensor with [input_batch_size, height, width, input_depth]
-    output_v: a tensor with [output_batch_size, reduced_height, reduced_width, output_depth]
-
-    @returns:
-        the output volume, padded with the borders of input. Accordingly to the previous description
-    """
-    input_depth = input_v.get_shape()[3].value
-    width = input_v.get_shape()[2].value
-    height = input_v.get_shape()[1].value
-
-    output_depth = output_v.get_shape()[3].value
-    reduced_width = output_v.get_shape()[2].value
-    reduced_height = output_v.get_shape()[1].value
-
-    assert (width - reduced_width) % 2 == 0
-    assert (height - reduced_height) % 2 == 0
-    assert output_depth >= input_depth
-
-    width_diff = int((width - reduced_width) / 2)
-    height_diff = int((height - reduced_height) / 2)
-
-    # every image in the batch have the depth reduced from X to 1 (collpased depth)
-    # this single depth is the sum of every depth of the image
-    # Or of every depth of the general input volume.
-    input_collapsed = tf.reduce_mean(input_v,
-                                     reduction_indices=[3],
-                                     keep_dims=True)
-
-    # lets make the input depth equal to the output depth
-    input_expanded = input_collapsed
-    for _ in range(output_depth - 1):
-        input_expanded = tf.concat(3, [input_expanded, input_collapsed])
-
-    padding_top = tf.slice(input_expanded, [0, 0, width_diff, 0],
-                           [-1, height_diff, reduced_width, -1])
-    padding_bottom = tf.slice(input_expanded,
-                              [0, height - height_diff, width_diff, 0],
-                              [-1, height_diff, reduced_width, -1])
-
-    padded = tf.concat(1, [padding_top, output_v, padding_bottom])
-
-    padding_left = tf.slice(input_expanded, [0, 0, 0, 0], [-1, height,
-                                                           width_diff, -1])
-    padding_right = tf.slice(input_expanded, [0, 0, width - width_diff, 0],
-                             [-1, height, height_diff, -1])
-
-    padded = tf.concat(2, [padding_left, padded, padding_right])
-    return padded
-
-
-def atrous_layer(name, x, kernels_shape, rate):
+def atrous_layer(x, atrous_kernel_shape, rate):
     """
     Returns the result of:
-    ReLU(atrous_conv2d(x, kernels, rate, padding='VALID') + bias).
-    Creates kernels, bias and relates summaries.
+    ReLU(atrous_conv2d(x, kernels, rate, padding="VALID") + bias).
+    Creates kernels (name=kernel), bias (name=bias) and relates summaries.
     
     Args:
         x: 4-D input tensor. shape = [batch, height, width, depth]
-        kernels_shape: the shape of W, used in convolution as kernels. [kernel_height, kernel_width, kernel_depth, num_kernels]
+        atrous_kernel_shape: the shape of W, used in convolution as kernels. [kernel_height, kernel_width, kernel_depth, num_kernels]
         rate: the atrous_conv2d rate parameter
         name: the op name
     """
 
-    num_kernels = kernels_shape[3]
-    kernels = utils.kernels(kernels_shape, name + "/kernels")
-    bias = utils.bias([num_kernels], name + "/bias")
+    num_kernels = atrous_kernel_shape[3]
+
+    kernels = utils.kernels(atrous_kernel_shape, "kernels")
+    bias = utils.bias([num_kernels], "bias")
 
     # atrous_conv2d:
     # output[b, i, j, k] = sum_{di, dj, q} filters[di, dj, q, k] *
@@ -115,17 +54,87 @@ def atrous_layer(name, x, kernels_shape, rate):
         tf.add(
             tf.nn.atrous_conv2d(x,
                                 kernels,
-                                rate=rate, # means 1 hole
-                                padding='VALID'),
+                                rate=rate, # rate = 2 means 1 hole
+                                padding="VALID"),
             bias),
-        name=name)
+        name="out")
 
 
-def atrous_block(x, kernel_side, rate, num_kernels, exp, name):
-    """ atrous block returns 4 atrous convoltion with padded boders as explained below
+def eq_conv(x, atrous_kernel_side, num_kernels, rate, padding=False):
+    """atrous convolute x with num_kenrnels with atrous_kernel_side and specified rate.
+    Ater:
+    pads x with the right amount of zeros. Convolve the previous filters with the padded input. Applyes relu.
+    Extract with max-pool the dominant contribution of the previous convolution.
+    Sum the max-pooled output with the first convolution output.
+    """
+    atrous_kernel_shape = [atrous_kernel_side, atrous_kernel_side,
+                           x.get_shape()[3].value, num_kernels]
+
+    with tf.variable_scope("eq_conv") as scope:
+        # define an atrous layer and assign the result
+        # of the convolution operation
+        conv = atrous_layer(x, atrous_kernel_shape, rate)
+        print(conv)
+
+    # extract "real" kernel side of the atrous filter
+    real_kernel_side = atrous_kernel_side + (atrous_kernel_side - 1) * (rate -
+                                                                        1)
+
+    # pad the input with the right amount of padding
+    pad_amount = int((real_kernel_side - 1) / 2)
+    input_padded = tf.pad(x,
+                          [[0, 0], [pad_amount, pad_amount],
+                           [pad_amount, pad_amount], [0, 0]],
+                          name="input_padded")
+    print(input_padded)
+
+    # using the learned filters of the previous convolution
+    with tf.variable_scope(scope, reuse=True):
+        kernels = tf.get_variable("kernels")
+        bias = tf.get_variable("bias")
+
+    # convolve the padded input with the same filters + bias
+    conv_contribution = tf.add(
+        tf.nn.atrous_conv2d(input_padded,
+                            kernels,
+                            rate, padding="VALID"),
+        bias,
+        name="conv_contribution")
+    print(conv_contribution)
+
+    # extract dominant contribution in the conv_contribution
+    # using max-pooling with stride=1 and kernel size = filter size
+    # dominant_conv_contribution & conv have the same size
+    dominant_conv_contribution = tf.nn.max_pool(
+        conv_contribution,
+        ksize=[1, real_kernel_side, real_kernel_side, 1],
+        strides=[1, 1, 1, 1],
+        padding="VALID",
+        name="dominant_conv_contributions")
+    print(dominant_conv_contribution)
+
+    eq = tf.add(conv, dominant_conv_contribution, name="out")
+    print(eq)
+    if padding:
+        top_bottom = int((x.get_shape()[1].value - eq.get_shape()[1].value) /
+                         2)
+        left_right = int((x.get_shape()[2].value - eq.get_shape()[2].value) /
+                         2)
+        eq = tf.pad(eq,
+                    [[0, 0], [top_bottom, top_bottom], [left_right,
+                                                        left_right], [0, 0]],
+                    name="padded_out")
+    print(eq)
+    return eq
+
+
+def atrous_block(x, atrous_kernel_side, rate, num_kernels, exp):
+    """ atrous block returns the result of 4 atrous convoltion, using the eq_conv
+    The output of eq_conv is zero paded for the first 3 convolution. The last one is not padded.
+
     params:
         x: [batch_size, height, width, depth]
-        kernel_size: we use only square kernels. This is the side length
+        atrous_kernel_size: we use only square kernels. This is the side length
         rate: atrous_layer rate parameter
         num_kernels: is the number of kernels to learn for the first atrous conv.
             this number crease with an exponential progression across the 4 layer
@@ -134,59 +143,28 @@ def atrous_block(x, kernel_side, rate, num_kernels, exp, name):
                 layer3: num_lernels *= exp
             num_kernels should be a power of exp, if you want exponential progression.
         exp: see num_kernels
-        name: is the block name
-
-    A single image in the out volume is ( (184 -5)/(stride=1) + 1 = 180 )² x 2**6
-
-    Which part of the input volume did not contribute?
-    The border contributed only as terms of the weighted sum (where the weight is
-    the learned filter value in that position) but they've never been
-    the center of a convolution (because it's impossible).
-
-    IDEA: pad the output volume with the previous volume borders. In that way,
-    we don't discard the borders contribution along the layer.
-    We don't insert zeros ad padding but we use the previous layers border ad padding.
-
-    A central pixel (a pixel that can be centered in the convolution window) concours for
-    4 times to the formation of the convolution result.
-
-    A border pixel only one time.
-    Thus: IDEA:
-    pad with previous input and convolve 4 times (every time with the previous layer padding and the new result)
-    The 4 iteration we do not pad the output.
-
-    It's like a residual network, but only for borders :D
     """
-
-    with tf.name_scope("atrous_block"):
-        kernels_shape = [kernel_side, kernel_side, x.get_shape()[3].value,
-                         num_kernels]
-        conv1 = atrous_layer(name + "/conv1", x, kernels_shape, rate)
-
-        # 1 convolution is gone: 3 missing
-
-        # 2
-        padded = padder(x, conv1)
-        prev_num_kernels = num_kernels
+    with tf.variable_scope("conv1"):
+        conv1 = eq_conv(x, atrous_kernel_side, num_kernels, rate, padding=True)
         num_kernels *= exp
-        kernels_shape[2] = prev_num_kernels
-        kernels_shape[3] = num_kernels
-        conv2 = atrous_layer(name + "/conv2", padded, kernels_shape, 2)
-        # 3
-        padded = padder(x, conv2)
-        prev_num_kernels = num_kernels
+    with tf.variable_scope("conv2"):
+        conv2 = eq_conv(
+            conv1, atrous_kernel_side,
+            num_kernels,
+            rate, padding=True)
         num_kernels *= exp
-        kernels_shape[2] = prev_num_kernels
-        kernels_shape[3] = num_kernels
-        conv3 = atrous_layer(name + "/conv3", padded, kernels_shape, 2)
-        # 4
-        padded = padder(x, conv3)
-        prev_num_kernels = num_kernels
+    with tf.variable_scope("conv3"):
+        conv3 = eq_conv(
+            conv2, atrous_kernel_side,
+            num_kernels,
+            rate, padding=True)
         num_kernels *= exp
-        kernels_shape[2] = prev_num_kernels
-        kernels_shape[3] = num_kernels
-        conv4 = atrous_layer(name + "/conv4", padded, kernels_shape, 2)
-        return conv4
+    with tf.variable_scope("conv4"):
+        conv4 = eq_conv(
+            conv3, atrous_kernel_side,
+            num_kernels,
+            rate, padding=False)
+    return conv4
 
 
 def get(image_, keep_prob=1.0):
@@ -202,21 +180,20 @@ def get(image_, keep_prob=1.0):
     be achieved using multiple small filters, that uses less computation resources.
 
     @returns:
-        unscaled_logists: spatial map of output vectors
+        softmax_linear: spatial map of output vectors (unscaled)
     """
     print(image_)
 
-    kernel_side = 3
+    atrous_kernel_side = 3
 
     # In the following code, the architecture is defined supposing an input image
     # of at least 184x184 (max value² of the average dimensions of the cropped pascal dataset)
-    with tf.variable_scope("l1"):
+    with tf.variable_scope("block1"):
         num_kernels = 2**6
         # at the end of block1, num_kernels has increased to: 2**(6+4 - 1) = 2**9 = 512
         block1 = atrous_block(
-            image_, kernel_side,
-            2, num_kernels,
-            exp=2, name="block1")
+            image_, atrous_kernel_side,
+            2, num_kernels, exp=2)
         num_kernels = 2**9
     #output: 180x180x512
     print(block1)
@@ -232,9 +209,9 @@ def get(image_, keep_prob=1.0):
     # Thus the new widht and height is: 180 - 2*45 = 90
     # That the spatial extent of a polling with a 2x2 window with a stride of 2.
     # The diffence is that the pooling is not learneable, the filter is.
-    pool1 = atrous_layer("atrous_pooling_1", block1,
-                         [kernel_side, kernel_side, num_kernels,
-                          num_kernels], 45)
+    with tf.variable_scope("atrous_pooling_1"):
+        pool1 = atrous_layer(block1, [atrous_kernel_side, atrous_kernel_side,
+                                      num_kernels, num_kernels], 45)
     #output: 90x90x512
     print(pool1)
 
@@ -250,11 +227,8 @@ def get(image_, keep_prob=1.0):
 
     # repeat the l1, using pool1 as input. Do not incrase the number of learned filter
     # Preserve input depth
-    with tf.variable_scope("l2"):
-        block2 = atrous_block(
-            pool1, kernel_side,
-            2, num_kernels,
-            exp=1, name="block2")
+    with tf.variable_scope("block2"):
+        block2 = atrous_block(pool1, atrous_kernel_side, 2, num_kernels, exp=1)
         #output: lxlx512, l = (90 -5)/(stride=1) + 1 = 86
         #output: 86x86x512
         print(block2)
@@ -269,17 +243,14 @@ def get(image_, keep_prob=1.0):
     # 42 = 86 - filter_side + 1 -> filter_side = 86-42 +1 = 45
     # new filter side = side + (side -1)*(rate -1)
     # 45 = 3 + (3 - 1)*(rate -1) -> rate = 42/2 = 22
-    pool2 = atrous_layer("atrous_pooling_2", block2,
-                         [kernel_side, kernel_side, num_kernels,
-                          num_kernels], 22)
+    with tf.variable_scope("atrous_pooling_2"):
+        pool2 = atrous_layer(block2, [atrous_kernel_side, atrous_kernel_side,
+                                      num_kernels, num_kernels], 22)
     #output: 42x42x512
     print(pool2)
 
-    with tf.variable_scope("l3"):
-        block3 = atrous_block(
-            pool2, kernel_side,
-            2, num_kernels,
-            exp=1, name="block3")
+    with tf.variable_scope("block3"):
+        block3 = atrous_block(pool2, atrous_kernel_side, 2, num_kernels, exp=1)
 
         # l = (42-5) +1 = 38
         #output: 38x38x512
@@ -289,43 +260,43 @@ def get(image_, keep_prob=1.0):
     # 19 = 38 - filter_side + 1 -> filter_side = 38-19 +1 = 20
     # new filter side = side + (side -1)*(rate -1)
     # 20 = 3 + (3 - 1)*(rate -1) -> rate = 19/2 = 9.5 -> 10 -> 18x18
-    pool3 = atrous_layer("atrous_pooling_3", block3,
-                         [kernel_side, kernel_side, num_kernels,
-                          num_kernels], 10)
+    with tf.variable_scope("atrous_pooling_3"):
+        pool3 = atrous_layer(block3, [atrous_kernel_side, atrous_kernel_side,
+                                      num_kernels, num_kernels], 10)
     #output: 18x18x512
     print(pool3)
 
     # fully convolutional layer
     # take the 85x85x512 input and project it to a 1x1x1024 dim space
-    with tf.variable_scope('fc1'):
+    with tf.variable_scope("fc1"):
         W_fc1 = utils.kernels([18, 18, 512, 1024], "W")
         b_fc1 = utils.bias([1024], "b")
 
         h_fc1 = tf.nn.relu(
             tf.add(
                 tf.nn.conv2d(pool3, W_fc1, [1, 1, 1, 1],
-                             padding='VALID'),
+                             padding="VALID"),
                 b_fc1),
-            name='h')
+            name="h")
         # output: 1x1x1024
         print(h_fc1)
 
-    with tf.variable_scope('dropout') as scope:
-        dropoutput = tf.nn.dropout(h_fc1, keep_prob, name=scope.name)
+    with tf.variable_scope("dropout"):
+        dropoutput = tf.nn.dropout(h_fc1, keep_prob, name="out")
         print(dropoutput)
         # output: 1x1x1024
 
         # softmax(WX + n)
-    with tf.variable_scope('softmax_linear') as scope:
+    with tf.variable_scope("softmax_linear"):
         # convert this 1024 featuers to NUM_CLASS
         W_fc2 = utils.kernels([1, 1, 1024, NUM_CLASS], "W")
         b_fc2 = utils.bias([NUM_CLASS], "b")
         out = tf.add(
             tf.nn.conv2d(dropoutput,
                          W_fc2, [1, 1, 1, 1],
-                         padding='VALID'),
+                         padding="VALID"),
             b_fc2,
-            name=scope.name)
+            name="out")
         # output: (BATCH_SIZE)1x1xNUM_CLASS if the input has been properly scaled
         # otherwise is a map
         print(out)
@@ -352,20 +323,20 @@ def loss(logits, labels):
     # cross_entropy across the batch
     cross_entropy = tf.nn.sparse_softmax_cross_entropy_with_logits(
         logits, labels, name="cross_entropy")
-    tf.scalar_summary('loss/cross_entropy', cross_entropy)
+    tf.scalar_summary("loss/cross_entropy", cross_entropy)
 
     mean_cross_entropy = tf.reduce_mean(cross_entropy,
                                         name="mean_cross_entropy")
-    tf.scalar_summary('loss/mean_cross_entropy', mean_cross_entropy)
+    tf.scalar_summary("loss/mean_cross_entropy", mean_cross_entropy)
 
     return mean_cross_entropy
 
 
-def train(loss, global_step):
+def train(loss_op, global_step):
     """
     Creates an Optimizer (Gradient Descent) and use exponential decay of learning rate
     Args:
-        loss: loss from loss()
+        loss_op: loss from loss()
         global_step: integer variable counting the numer of traning steps processed
 
     Returns:
@@ -383,7 +354,7 @@ def train(loss, global_step):
         # decay the learning rate at discrete intervals
         staircase=True)
 
-    tf.scalar_summary('learning_rate', lr)
+    tf.scalar_summary("learning_rate", lr)
 
     optimizer = tf.train.GradientDescentOptimizer(lr)
-    return optimizer.minimize(loss)
+    return optimizer.minimize(loss_op)

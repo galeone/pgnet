@@ -145,3 +145,64 @@ def kernels_on_grid_summary(kernel, name):
 
     grid = tf.reshape(tf.add_n(cells), [1, grid_width, grid_height, depth])
     return tf.image_summary(name, grid, max_images=1)
+
+
+def padder(input_v, output_v):
+    """Extract the borders from input_v.
+    The borders size is the difference between output and input height and width.
+
+    If the input depth and the output depth is the same, the padding is made layer by layer.
+    eg: padding of layer with depth 1, will be attached to the output layer with depth 1 ecc
+
+    Othwerwise, if the output depth is greather than the input depth (thats the case in
+    convolutional neural networks, when output is series of images resulting from
+    the convolution of a set of kernels),
+    it pads every output layer with the average of the extract border of input.
+
+    input_v: a tensor with [input_batch_size, height, width, input_depth]
+    output_v: a tensor with [output_batch_size, reduced_height, reduced_width, output_depth]
+
+    @returns:
+        the output volume, padded with the borders of input. Accordingly to the previous description
+    """
+    input_depth = input_v.get_shape()[3].value
+    width = input_v.get_shape()[2].value
+    height = input_v.get_shape()[1].value
+
+    output_depth = output_v.get_shape()[3].value
+    reduced_width = output_v.get_shape()[2].value
+    reduced_height = output_v.get_shape()[1].value
+
+    assert (width - reduced_width) % 2 == 0
+    assert (height - reduced_height) % 2 == 0
+    assert output_depth >= input_depth
+
+    width_diff = int((width - reduced_width) / 2)
+    height_diff = int((height - reduced_height) / 2)
+
+    # every image in the batch have the depth reduced from X to 1 (collpased depth)
+    # this single depth is the sum of every depth of the image
+    # Or of every depth of the general input volume.
+    input_collapsed = tf.reduce_mean(input_v,
+                                     reduction_indices=[3],
+                                     keep_dims=True)
+
+    # lets make the input depth equal to the output depth
+    input_expanded = input_collapsed
+    for _ in range(output_depth - 1):
+        input_expanded = tf.concat(3, [input_expanded, input_collapsed])
+
+    padding_top = tf.slice(input_expanded, [0, 0, width_diff, 0],
+                           [-1, height_diff, reduced_width, -1])
+    padding_bottom = tf.slice(input_expanded,
+                              [0, height - height_diff, width_diff, 0],
+                              [-1, height_diff, reduced_width, -1])
+    padded = tf.concat(1, [padding_top, output_v, padding_bottom])
+
+    padding_left = tf.slice(input_expanded, [0, 0, 0, 0], [-1, height,
+                                                           width_diff, -1])
+    padding_right = tf.slice(input_expanded, [0, 0, width - width_diff, 0],
+                             [-1, height, height_diff, -1])
+
+    padded = tf.concat(2, [padding_left, padded, padding_right])
+    return padded
