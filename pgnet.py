@@ -17,10 +17,10 @@ INPUT_DEPTH = 3
 NUM_CLASS = 20
 
 # train constants
-BATCH_SIZE = 128
+BATCH_SIZE = 32
 NUM_EPOCHS_PER_DECAY = 350.0  # Epochs after which learning rate decays.
 LEARNING_RATE_DECAY_FACTOR = 0.1  # Learning rate decay factor.
-INITIAL_LEARNING_RATE = 0.1  # Initial learning rate.
+INITIAL_LEARNING_RATE = 1e-3  # Initial learning rate.
 
 
 def atrous_layer(x, atrous_kernel_shape, rate):
@@ -146,24 +146,26 @@ def atrous_block(x, atrous_kernel_side, rate, num_kernels, exp):
     """
     with tf.variable_scope("conv1"):
         conv1 = eq_conv(x, atrous_kernel_side, num_kernels, rate, padding=True)
-        num_kernels *= exp
+
     with tf.variable_scope("conv2"):
         conv2 = eq_conv(
             conv1, atrous_kernel_side,
             num_kernels,
             rate, padding=True)
-        num_kernels *= exp
+
+    num_kernels *= exp
     with tf.variable_scope("conv3"):
         conv3 = eq_conv(
             conv2, atrous_kernel_side,
             num_kernels,
             rate, padding=True)
-        num_kernels *= exp
+
     with tf.variable_scope("conv4"):
         conv4 = eq_conv(
             conv3, atrous_kernel_side,
             num_kernels,
             rate, padding=False)
+
     return conv4
 
 
@@ -194,7 +196,7 @@ def get(image_, keep_prob=1.0):
         block1 = atrous_block(
             image_, atrous_kernel_side,
             2, num_kernels, exp=2)
-        num_kernels = 2**8
+        num_kernels *= 2
     #output: 180x180x512
     print(block1)
 
@@ -230,10 +232,12 @@ def get(image_, keep_prob=1.0):
     # repeat the l1, using pool1 as input. Do not incrase the number of learned filter
     # Preserve input depth
     with tf.variable_scope("block2"):
-        block2 = atrous_block(pool1, atrous_kernel_side, 2, num_kernels, exp=1)
+        block2 = atrous_block(pool1, atrous_kernel_side, 2, num_kernels, exp=2)
+        num_kernels *= 2
         #output: lxlx512, l = (90 -5)/(stride=1) + 1 = 86
         #output: 86x86x512
         print(block2)
+        print(num_kernels)
 
     # reduce 4 times the input volume
     # 86/4 = 22
@@ -254,7 +258,9 @@ def get(image_, keep_prob=1.0):
     print(pool2)
 
     with tf.variable_scope("block3"):
-        block3 = atrous_block(pool2, atrous_kernel_side, 2, num_kernels, exp=1)
+        block3 = atrous_block(pool2, atrous_kernel_side, 2, num_kernels, exp=2)
+        num_kernels *= 2
+        print(num_kernels)
         # l = (43-5) +1 = 39
         #output: 39x39x512
     print(block3)
@@ -275,8 +281,8 @@ def get(image_, keep_prob=1.0):
     # fully convolutional layer
     # take the 85x85x512 input and project it to a 1x1x1024 dim space
     with tf.variable_scope("fc1"):
-        W_fc1 = utils.kernels([19, 19, num_kernels, num_kernels*2], "W")
-        b_fc1 = utils.bias([num_kernels*2], "b")
+        W_fc1 = utils.kernels([19, 19, num_kernels, 1024], "W")
+        b_fc1 = utils.bias([1024], "b")
 
         h_fc1 = tf.nn.relu(
             tf.add(
@@ -295,7 +301,7 @@ def get(image_, keep_prob=1.0):
         # softmax(WX + n)
     with tf.variable_scope("softmax_linear"):
         # convert this 1024 featuers to NUM_CLASS
-        W_fc2 = utils.kernels([1, 1, num_kernels*2, NUM_CLASS], "W")
+        W_fc2 = utils.kernels([1, 1, 1024, NUM_CLASS], "W")
         b_fc2 = utils.bias([NUM_CLASS], "b")
         out = tf.add(
             tf.nn.conv2d(dropoutput,

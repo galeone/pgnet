@@ -27,7 +27,6 @@ TRAINED_MODEL_FILENAME = "model.pb"
 CSV_PATH = "~/data/PASCAL_2012_cropped"
 
 # train parameters
-MIN_ACCURACY = 0.9
 MAX_ITERATIONS = 10**100 + 1
 DISPLAY_STEP = 100
 
@@ -105,9 +104,11 @@ def train(args):
                             keep_prob_: 0.5
                         })
 
-                    duration = time.time() - start.time()
+                    duration = time.time() - start
                     assert not np.isnan(
                         loss_val), 'Model diverged with loss = NaN'
+
+                    print("Step {}: duration: {} loss: {}".format(step, duration, loss_val))
 
                     if step % DISPLAY_STEP == 0 and step > 0:
                         # we don't need accuracy on a validation set, during training
