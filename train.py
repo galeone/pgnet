@@ -75,8 +75,7 @@ def train(args):
             init_op = tf.initialize_all_variables()
 
             with tf.Session(
-                    config=tf.ConfigProto(allow_soft_placement=True,
-                                          log_device_placement=True)) as sess:
+                    config=tf.ConfigProto(allow_soft_placement=True)) as sess:
                 # initialize variables
                 sess.run(init_op)
 

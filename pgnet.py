@@ -189,12 +189,12 @@ def get(image_, keep_prob=1.0):
     # In the following code, the architecture is defined supposing an input image
     # of at least 184x184 (max value² of the average dimensions of the cropped pascal dataset)
     with tf.variable_scope("block1"):
-        num_kernels = 2**6
+        num_kernels = 2**5
         # at the end of block1, num_kernels has increased to: 2**(6+4 - 1) = 2**9 = 512
         block1 = atrous_block(
             image_, atrous_kernel_side,
             2, num_kernels, exp=2)
-        num_kernels = 2**9
+        num_kernels = 2**8
     #output: 180x180x512
     print(block1)
 
@@ -209,9 +209,11 @@ def get(image_, keep_prob=1.0):
     # Thus the new widht and height is: 180 - 2*45 = 90
     # That the spatial extent of a polling with a 2x2 window with a stride of 2.
     # The diffence is that the pooling is not learneable, the filter is.
-    with tf.variable_scope("atrous_pooling_1"):
-        pool1 = atrous_layer(block1, [atrous_kernel_side, atrous_kernel_side,
-                                      num_kernels, num_kernels], 45)
+    with tf.variable_scope("pool1"):
+        pool1 = tf.nn.max_pool(block1,
+                               ksize=[1, 2, 2, 1],
+                               strides=[1, 2, 2, 1],
+                               padding="VALID")
     #output: 90x90x512
     print(pool1)
 
@@ -243,34 +245,38 @@ def get(image_, keep_prob=1.0):
     # 42 = 86 - filter_side + 1 -> filter_side = 86-42 +1 = 45
     # new filter side = side + (side -1)*(rate -1)
     # 45 = 3 + (3 - 1)*(rate -1) -> rate = 42/2 = 22
-    with tf.variable_scope("atrous_pooling_2"):
-        pool2 = atrous_layer(block2, [atrous_kernel_side, atrous_kernel_side,
-                                      num_kernels, num_kernels], 22)
-    #output: 42x42x512
+    with tf.variable_scope("pool2"):
+        pool2 = tf.nn.max_pool(block2,
+                               ksize=[1, 2, 2, 1],
+                               strides=[1, 2, 2, 1],
+                               padding="VALID")
+    #output: 43x43x512
     print(pool2)
 
     with tf.variable_scope("block3"):
         block3 = atrous_block(pool2, atrous_kernel_side, 2, num_kernels, exp=1)
-
-        # l = (42-5) +1 = 38
-        #output: 38x38x512
+        # l = (43-5) +1 = 39
+        #output: 39x39x512
     print(block3)
 
     # 38/2 = 19
     # 19 = 38 - filter_side + 1 -> filter_side = 38-19 +1 = 20
     # new filter side = side + (side -1)*(rate -1)
     # 20 = 3 + (3 - 1)*(rate -1) -> rate = 19/2 = 9.5 -> 10 -> 18x18
-    with tf.variable_scope("atrous_pooling_3"):
-        pool3 = atrous_layer(block3, [atrous_kernel_side, atrous_kernel_side,
-                                      num_kernels, num_kernels], 10)
-    #output: 18x18x512
+    with tf.variable_scope("pool3"):
+        pool3 = tf.nn.max_pool(block3,
+                               ksize=[1, 2, 2, 1],
+                               strides=[1, 2, 2, 1],
+                               padding="VALID")
+
+    #output: 19x19x512
     print(pool3)
 
     # fully convolutional layer
     # take the 85x85x512 input and project it to a 1x1x1024 dim space
     with tf.variable_scope("fc1"):
-        W_fc1 = utils.kernels([18, 18, 512, 1024], "W")
-        b_fc1 = utils.bias([1024], "b")
+        W_fc1 = utils.kernels([19, 19, num_kernels, num_kernels*2], "W")
+        b_fc1 = utils.bias([num_kernels*2], "b")
 
         h_fc1 = tf.nn.relu(
             tf.add(
@@ -289,7 +295,7 @@ def get(image_, keep_prob=1.0):
         # softmax(WX + n)
     with tf.variable_scope("softmax_linear"):
         # convert this 1024 featuers to NUM_CLASS
-        W_fc2 = utils.kernels([1, 1, 1024, NUM_CLASS], "W")
+        W_fc2 = utils.kernels([1, 1, num_kernels*2, NUM_CLASS], "W")
         b_fc2 = utils.bias([NUM_CLASS], "b")
         out = tf.add(
             tf.nn.conv2d(dropoutput,
