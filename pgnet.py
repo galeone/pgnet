@@ -334,8 +334,8 @@ def loss(logits, labels):
 
     # cross_entropy across the batch
     cross_entropy = tf.nn.sparse_softmax_cross_entropy_with_logits(
-        logits, labels, name="cross_entropy")
-    tf.scalar_summary("loss/cross_entropy", cross_entropy)
+        logits, labels, name="cross_entropy_per_example")
+    #tf.scalar_summary("loss/cross_entropy", cross_entropy)
 
     mean_cross_entropy = tf.reduce_mean(cross_entropy,
                                         name="mean_cross_entropy")
