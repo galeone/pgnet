@@ -90,7 +90,10 @@ def _generate_image_and_label_batch(image, label, min_queue_examples,
             capacity=min_queue_examples + 3 * batch_size)
 
     # Display the training images in the visualizer.
-    tf.image_summary('images', images)
+    # add a scope to the summary. If shuffle=True, we're training
+    # else we're validating
+    prefix = 'train' if shuffle else 'validation'
+    tf.image_summary(prefix + '/images', images)
 
     return images, tf.reshape(label_batch, [batch_size])
 
@@ -116,7 +119,8 @@ def train_inputs(csv_path, batch_size):
 
     # Apply random distortions to the image
     distorted_image = tf.image.random_flip_left_right(record.image)
-    distorted_image = tf.image.random_brightness(distorted_image, max_delta=63)
+
+    distorted_image = tf.image.random_brightness(distorted_image, max_delta=0.7)
     distorted_image = tf.image.random_contrast(
         distorted_image, lower=0.2, upper=1.8)
 
