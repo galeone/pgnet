@@ -20,7 +20,7 @@ def read_cropped_pascal(base_path, queue):
     Returns:
         An object representing a single example, with the following fields:
         key: a scalar string Tensor describing the filename & record number for this example.
-        label: a tensor int32 with the label
+        label: a tensor int64 with the label
         image: a [pgnet.INPUT_SIDE; pgnet.INPUT_SIDE, DEPTH] float32 tensor with the image data, resized with nn interpolation
     """
 
@@ -38,7 +38,7 @@ def read_cropped_pascal(base_path, queue):
     # file,width,height,label
     record_defaults = [[""], [0], [0], [0]]
 
-    image_path, _, _, result.label = tf.decode_csv(
+    image_path, _, _, label = tf.decode_csv(
         row, record_defaults, field_delim=",")
 
     image_path = base_path + tf.constant("/") + image_path
@@ -53,47 +53,44 @@ def read_cropped_pascal(base_path, queue):
     # remove the 1st dimension -> [pgnet.INPUT_SIDE, pgnet.INPUT_SIDE, DEPTH]
     result.image = tf.reshape(image, [pgnet.INPUT_SIDE, pgnet.INPUT_SIDE,
                                       DEPTH])
-
+    # convert label to int64, because tensorflow uses it everywhere
+    result.label = tf.cast(label, tf.int64)
     return result
 
 
-def _generate_image_and_label_batch(image, label, min_queue_examples,
-                                    batch_size, shuffle):
+def _generate_image_and_label_batch(
+        image, label,
+        min_queue_examples,
+        batch_size, task='train'):
     """Construct a queued batch of images and labels.
     Args:
       image: 3-D Tensor of [pgnet.INPUT_SIDE, pgnet.INPUT_SIDE, DEPTH] of type.float32.
-      label: 1-D Tensor of type int32
-      min_queue_examples: int32, minimum number of samples to retain
-        in the queue that provides of batches of examples.
+      label: 1-D Tensor of type int64
+      min_queue_examples: int64, minimum number of samples to retain
+        in the queue that provides of batches of examples. The higher the most random (! important)
     batch_size: Number of images per batch.
-    shuffle: boolean indicating whether to use a shuffling queue.
+    task: 'train' or 'validation'. In both cases use a shuffle queue
     Returns:
     images: Images. 4D tensor of [batch_size, pgnet.INPUT_SIDE, pgnet.INPUT_SIDE, DEPTH] size.
     labels: Labels. 1D tensor of [batch_size] size.
     """
+    assert task == 'train' or task == 'validation'
 
     # Create a queue that shuffles the examples, and then
     # read 'batch_size' images + labels from the example queue.
     num_preprocess_threads = 16
-    if shuffle:
-        images, label_batch = tf.train.shuffle_batch(
-            [image, label],
-            batch_size=batch_size,
-            num_threads=num_preprocess_threads,
-            capacity=min_queue_examples + 3 * batch_size,
-            min_after_dequeue=min_queue_examples)
-    else:
-        images, label_batch = tf.train.batch(
-            [image, label],
-            batch_size=batch_size,
-            num_threads=num_preprocess_threads,
-            capacity=min_queue_examples + 3 * batch_size)
+
+    images, label_batch = tf.train.shuffle_batch(
+        [image, label],
+        batch_size=batch_size,
+        num_threads=num_preprocess_threads,
+        capacity=min_queue_examples + 3 * batch_size,
+        min_after_dequeue=min_queue_examples)
 
     # Display the training images in the visualizer.
     # add a scope to the summary. If shuffle=True, we're training
     # else we're validating
-    prefix = 'train' if shuffle else 'validation'
-    tf.image_summary(prefix + '/images', images)
+    tf.image_summary(task + '/images', images)
 
     return images, tf.reshape(label_batch, [batch_size])
 
@@ -124,17 +121,22 @@ def train_inputs(csv_path, batch_size):
     # thank you:
     # https://stackoverflow.com/questions/37299345/using-if-conditions-inside-a-tensorflow-graph
     def fn1():
-        distorted_image = tf.image.random_brightness(flipped_image, max_delta=0.7)
+        distorted_image = tf.image.random_brightness(flipped_image,
+                                                     max_delta=0.7)
         distorted_image = tf.image.random_contrast(
-            distorted_image, lower=0.5, upper=1.)
-        return distorted_image
-    def fn2():
-        distorted_image = tf.image.random_contrast(
-            flipped_image, lower=0.5, upper=1.)
-        distorted_image = tf.image.random_brightness(distorted_image, max_delta=0.7)
+            distorted_image, lower=0.4, upper=0.7)
         return distorted_image
 
-    p_order = tf.random_uniform(shape=[], minval=0., maxval=1., dtype=tf.float32)
+    def fn2():
+        distorted_image = tf.image.random_contrast(
+            flipped_image, lower=0.4, upper=0.7)
+        distorted_image = tf.image.random_brightness(distorted_image,
+                                                     max_delta=0.7)
+        return distorted_image
+
+    p_order = tf.random_uniform(
+        shape=[], minval=0., maxval=1.,
+        dtype=tf.float32)
     pred = tf.less(p_order, 0.5)
     distorted_image = tf.cond(pred, fn1, fn2)
 
@@ -142,7 +144,7 @@ def train_inputs(csv_path, batch_size):
     float_image = tf.image.per_image_whitening(distorted_image)
 
     # Ensure that the random shuffling has good mixing properties.
-    min_fraction_of_examples_in_queue = 0.4
+    min_fraction_of_examples_in_queue = 0.8
     min_queue_examples = int(NUM_EXAMPLES_PER_EPOCH_FOR_TRAIN *
                              min_fraction_of_examples_in_queue)
 
@@ -153,7 +155,7 @@ def train_inputs(csv_path, batch_size):
                                            record.label,
                                            min_queue_examples,
                                            batch_size,
-                                           shuffle=True)
+                                           task='train')
 
 
 def validation_inputs(csv_path, batch_size):
@@ -178,13 +180,19 @@ def validation_inputs(csv_path, batch_size):
     float_image = tf.image.per_image_whitening(record.image)
 
     # Ensure that the random shuffling has good mixing properties.
-    min_fraction_of_examples_in_queue = 0.4
+    min_fraction_of_examples_in_queue = 0.8
     min_queue_examples = int(NUM_EXAMPLES_PER_EPOCH_FOR_EVAL *
                              min_fraction_of_examples_in_queue)
 
+    # min_after_dequeue defines how big a buffer we will randomly sample
+    #   from -- bigger means better shuffling but slower start up and more
+    #   memory used.
+    # capacity must be larger than min_after_dequeue and the amount larger
+    #   determines the maximum we will prefetch.  Recommendation:
+    #   min_after_dequeue + (num_threads + a small safety margin) * batch_size
     # Generate a batch of images and labels by building up a queue of examples.
     return _generate_image_and_label_batch(float_image,
                                            record.label,
                                            min_queue_examples,
                                            batch_size,
-                                           shuffle=False)
+                                           task='validation')
