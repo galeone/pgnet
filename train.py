@@ -188,7 +188,7 @@ def train(args):
                                     labels_: lbls,
                                     keep_prob_: 1.0
                                 })
-                            print(lbls)
+
                             used_batches += 1
                             print("Validation batch {}, accuracy: {}".format(
                                 i + 1, batch_validation_accuracy))

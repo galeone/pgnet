@@ -327,20 +327,20 @@ def loss(logits, labels):
         Loss tensor of type float.
     """
 
-    # reshape logits to a vector of NUM_CLASS elements
-    # -1 = every batch size
-    logits = tf.reshape(logits, [-1, NUM_CLASS])
+    with tf.variable_scope("loss"):
+        # reshape logits to a vector of NUM_CLASS elements
+        # -1 = every batch size
+        logits = tf.reshape(logits, [-1, NUM_CLASS])
 
-    labels = tf.cast(labels, tf.int64)
+        labels = tf.cast(labels, tf.int64)
 
-    # cross_entropy across the batch
-    cross_entropy = tf.nn.sparse_softmax_cross_entropy_with_logits(
-        logits, labels, name="cross_entropy_per_example")
-    #tf.scalar_summary("loss/cross_entropy", cross_entropy)
+        # cross_entropy across the batch
+        cross_entropy = tf.nn.sparse_softmax_cross_entropy_with_logits(
+            logits, labels, name="cross_entropy_per_example")
 
-    mean_cross_entropy = tf.reduce_mean(cross_entropy,
-                                        name="mean_cross_entropy")
-    tf.scalar_summary("loss/mean_cross_entropy", mean_cross_entropy)
+        mean_cross_entropy = tf.reduce_mean(cross_entropy,
+                                            name="mean_cross_entropy")
+        tf.scalar_summary("loss/mean_cross_entropy", mean_cross_entropy)
 
     return mean_cross_entropy
 
@@ -355,20 +355,22 @@ def train(loss_op, global_step):
     Returns:
         train_op: of for training
     """
-    num_batches_per_epoch = pascal_input.NUM_EXAMPLES_PER_EPOCH_FOR_TRAIN / BATCH_SIZE
-    decay_steps = int(num_batches_per_epoch * NUM_EPOCHS_PER_DECAY)
+    with tf.variable_scope("train"):
+        num_batches_per_epoch = pascal_input.NUM_EXAMPLES_PER_EPOCH_FOR_TRAIN / BATCH_SIZE
+        decay_steps = int(num_batches_per_epoch * NUM_EPOCHS_PER_DECAY)
 
-    # decay the learning rate exponentially based on the number of steps
-    learning_rate = tf.train.exponential_decay(
-        INITIAL_LEARNING_RATE,
-        global_step,
-        decay_steps,
-        LEARNING_RATE_DECAY_FACTOR,
-        # decay the learning rate at discrete intervals
-        staircase=True)
+        # decay the learning rate exponentially based on the number of steps
+        learning_rate = tf.train.exponential_decay(
+            INITIAL_LEARNING_RATE,
+            global_step,
+            decay_steps,
+            LEARNING_RATE_DECAY_FACTOR,
+            # decay the learning rate at discrete intervals
+            staircase=True)
 
-    tf.scalar_summary("learning_rate", learning_rate)
+        tf.scalar_summary("learning_rate", learning_rate)
 
-    optimizer = tf.train.GradientDescentOptimizer(learning_rate)
+        optimizer = tf.train.GradientDescentOptimizer(learning_rate)
+
     # minimizes loss and increments global_step by 1
     return optimizer.minimize(loss_op, global_step=global_step)
