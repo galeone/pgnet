@@ -18,7 +18,7 @@ NUM_CLASS = 20
 
 # train constants
 BATCH_SIZE = 32
-NUM_EPOCHS_PER_DECAY = 350.0  # Epochs after which learning rate decays.
+NUM_EPOCHS_PER_DECAY = 100.0  # Epochs after which learning rate decays.
 LEARNING_RATE_DECAY_FACTOR = 0.1  # Learning rate decay factor.
 INITIAL_LEARNING_RATE = 1e-3  # Initial learning rate.
 
@@ -62,10 +62,10 @@ def atrous_layer(x, atrous_kernel_shape, rate):
 
 def eq_conv(x, atrous_kernel_side, num_kernels, rate, padding=False):
     """atrous convolute x with num_kenrnels with atrous_kernel_side and specified rate.
-    Ater:
+    After:
     pads x with the right amount of zeros. Convolve the previous filters with the padded input. Applyes relu.
     Extract with max-pool the dominant contribution of the previous convolution.
-    Sum the max-pooled output with the first convolution output.
+    Subtract the from the max-pooled output the first convolution output.
     """
     atrous_kernel_shape = [atrous_kernel_side, atrous_kernel_side,
                            x.get_shape()[3].value, num_kernels]
@@ -113,7 +113,7 @@ def eq_conv(x, atrous_kernel_side, num_kernels, rate, padding=False):
         name="dominant_conv_contributions")
     print(dominant_conv_contribution)
 
-    eq = tf.add(conv, dominant_conv_contribution, name="out")
+    eq = tf.sub(dominant_conv_contribution, conv, name="out")
     print(eq)
     if padding:
         top_bottom = int((x.get_shape()[1].value - eq.get_shape()[1].value) /
@@ -137,10 +137,10 @@ def atrous_block(x, atrous_kernel_side, rate, num_kernels, exp):
         atrous_kernel_size: we use only square kernels. This is the side length
         rate: atrous_layer rate parameter
         num_kernels: is the number of kernels to learn for the first atrous conv.
-            this number crease with an exponential progression across the 4 layer
-            Thus: layer1: num_kernels
-                layer2: num_nernels *= exp
-                layer3: num_lernels *= exp
+            this number crease with an exponential progression across the 4 layer, skipping ne
+            Thus:
+                layer1, layer2: num_nernels
+                layer3, layer4: num_lernels *= exp
             num_kernels should be a power of exp, if you want exponential progression.
         exp: see num_kernels
     """
@@ -279,10 +279,11 @@ def get(image_, keep_prob=1.0):
     print(pool3)
 
     # fully convolutional layer
-    # take the 85x85x512 input and project it to a 1x1x1024 dim space
+    # take the 85x85x512 input and project it to a 1x1xNUM_NEURONS dim space
+    NUM_NEURONS = 1024
     with tf.variable_scope("fc1"):
-        W_fc1 = utils.kernels([19, 19, num_kernels, 1024], "W")
-        b_fc1 = utils.bias([1024], "b")
+        W_fc1 = utils.kernels([19, 19, num_kernels, NUM_NEURONS], "W")
+        b_fc1 = utils.bias([NUM_NEURONS], "b")
 
         h_fc1 = tf.nn.relu(
             tf.add(
@@ -290,18 +291,18 @@ def get(image_, keep_prob=1.0):
                              padding="VALID"),
                 b_fc1),
             name="h")
-        # output: 1x1x1024
+        # output: 1x1xNUM_NEURONS
         print(h_fc1)
 
     with tf.variable_scope("dropout"):
         dropoutput = tf.nn.dropout(h_fc1, keep_prob, name="out")
         print(dropoutput)
-        # output: 1x1x1024
+        # output: 1x1xNUM_NEURONS
 
         # softmax(WX + n)
     with tf.variable_scope("softmax_linear"):
-        # convert this 1024 featuers to NUM_CLASS
-        W_fc2 = utils.kernels([1, 1, 1024, NUM_CLASS], "W")
+        # convert this NUM_NEURONS featuers to NUM_CLASS
+        W_fc2 = utils.kernels([1, 1, NUM_NEURONS, NUM_CLASS], "W")
         b_fc2 = utils.bias([NUM_CLASS], "b")
         out = tf.add(
             tf.nn.conv2d(dropoutput,
@@ -346,7 +347,7 @@ def loss(logits, labels):
 
 def train(loss_op, global_step):
     """
-    Creates an Optimizer (Gradient Descent) and use exponential decay of learning rate
+    Creates an Optimizer and use exponential decay of learning rate
     Args:
         loss_op: loss from loss()
         global_step: integer variable counting the numer of traning steps processed
@@ -358,7 +359,7 @@ def train(loss_op, global_step):
     decay_steps = int(num_batches_per_epoch * NUM_EPOCHS_PER_DECAY)
 
     # decay the learning rate exponentially based on the number of steps
-    lr = tf.train.exponential_decay(
+    learning_rate = tf.train.exponential_decay(
         INITIAL_LEARNING_RATE,
         global_step,
         decay_steps,
@@ -366,7 +367,8 @@ def train(loss_op, global_step):
         # decay the learning rate at discrete intervals
         staircase=True)
 
-    tf.scalar_summary("learning_rate", lr)
+    tf.scalar_summary("learning_rate", learning_rate)
 
-    optimizer = tf.train.GradientDescentOptimizer(lr)
-    return optimizer.minimize(loss_op)
+    optimizer = tf.train.GradientDescentOptimizer(learning_rate)
+    # minimizes loss and increments global_step by 1
+    return optimizer.minimize(loss_op, global_step=global_step)
