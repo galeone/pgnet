@@ -38,9 +38,7 @@ def atrous_layer(x, atrous_kernel_shape, rate):
 
     num_kernels = atrous_kernel_shape[3]
 
-    kernels = utils.kernels(atrous_kernel_shape,
-                            "kernels",
-                            initializer=tf.random_uniform_initializer())
+    kernels = utils.kernels(atrous_kernel_shape, "kernels")
     bias = utils.bias([num_kernels], "bias")
 
     # atrous_conv2d:
