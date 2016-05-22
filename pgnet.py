@@ -18,9 +18,9 @@ NUM_CLASS = 20
 
 # train constants
 BATCH_SIZE = 32
-NUM_EPOCHS_PER_DECAY = 100.0  # Epochs after which learning rate decays.
+NUM_EPOCHS_PER_DECAY = 10  # Epochs after which learning rate decays.
 LEARNING_RATE_DECAY_FACTOR = 0.1  # Learning rate decay factor.
-INITIAL_LEARNING_RATE = 1e-3  # Initial learning rate.
+INITIAL_LEARNING_RATE = 1e-4  # Initial learning rate.
 
 
 def atrous_layer(x, atrous_kernel_shape, rate):
@@ -38,7 +38,9 @@ def atrous_layer(x, atrous_kernel_shape, rate):
 
     num_kernels = atrous_kernel_shape[3]
 
-    kernels = utils.kernels(atrous_kernel_shape, "kernels")
+    kernels = utils.kernels(atrous_kernel_shape,
+                            "kernels",
+                            initializer=tf.random_uniform_initializer())
     bias = utils.bias([num_kernels], "bias")
 
     # atrous_conv2d:
@@ -113,7 +115,7 @@ def eq_conv(x, atrous_kernel_side, num_kernels, rate, padding=False):
         name="dominant_conv_contributions")
     print(dominant_conv_contribution)
 
-    eq = tf.sub(dominant_conv_contribution, conv, name="out")
+    eq = tf.sub(dominant_conv_contribution, conv, name="sub")
     print(eq)
     if padding:
         top_bottom = int((x.get_shape()[1].value - eq.get_shape()[1].value) /
@@ -123,7 +125,9 @@ def eq_conv(x, atrous_kernel_side, num_kernels, rate, padding=False):
         eq = tf.pad(eq,
                     [[0, 0], [top_bottom, top_bottom], [left_right,
                                                         left_right], [0, 0]],
-                    name="padded_out")
+                    name="padded_sub")
+
+    eq = tf.nn.relu(eq, name="out")
     print(eq)
     return eq
 
