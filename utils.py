@@ -50,26 +50,30 @@ def variable_summaries(var, name):
         return summaries
 
 
-def weight(shape, name):
+def weight(shape,
+           name,
+           initializer=tf.contrib.layers.xavier_initializer_conv2d()):
     """ weight returns a tensor with the requested shape, initialized with
-    the xavier initializer
+    the xavier initializer, if not other initializer is specified.
     Creates baisc summaries too.
     Returns the weight tensor"""
-    w = tf.get_variable(
-        name,
-        shape,
-        initializer=tf.contrib.layers.xavier_initializer_conv2d())
+    w = tf.get_variable(name, shape, initializer=initializer)
     _ = variable_summaries(w, w.name)
     return w
 
 
-def kernels(shape, name):
+def kernels(shape,
+            name,
+            initializer=tf.contrib.layers.xavier_initializer_conv2d()):
     """ kernels create and return a weight with the required shape
     The main difference with weight, is that kernels returns the summary
     for the learned filters visualization if the weight depth is 1, 2 or 3.
-    shape should be in the form [ Y, X, Depth, NumKernels ]
+    shape should be in the form [ Y, X, Depth, NumKernels ].
+
+    Initializes the kernels with the xavier initializer if no other initializer
+    is specified.
     """
-    w = weight(shape, name)
+    w = weight(shape, name, initializer)
 
     if shape[2] in (1, 3, 4):
         with tf.name_scope("summaries"):
