@@ -91,7 +91,7 @@ def eq_conv(x, atrous_kernel_side, num_kernels, rate, padding=False):
                                          rate,
                                          padding="VALID")
         print(conv_contribution)
-
+        """
         # lets make the pixels contribut equally, using average pooling
         # with a stride of 1 and a ksize equals to the kernel size in order
         # to reside the contribution output to the original convolution size
@@ -101,6 +101,8 @@ def eq_conv(x, atrous_kernel_side, num_kernels, rate, padding=False):
                             strides=[1, 1, 1, 1],
                             padding="VALID",
                             name="eq")
+        """
+        eq = conv_contribution
         print(eq)
 
         if padding:
@@ -186,7 +188,7 @@ def get(image_, keep_prob=1.0):
             image_, atrous_kernel_side,
             2, num_kernels, exp=2)
         num_kernels *= 2
-    #output: 180x180x512
+    #output: 184x184x512
     print(block1)
 
     # now that the border contributed 4 times
@@ -205,7 +207,7 @@ def get(image_, keep_prob=1.0):
                                ksize=[1, 2, 2, 1],
                                strides=[1, 2, 2, 1],
                                padding="VALID")
-    #output: 90x90x512
+    #output: 92x92x512
     print(pool1)
 
     # normalization is useless
@@ -223,8 +225,8 @@ def get(image_, keep_prob=1.0):
     with tf.variable_scope("block2"):
         block2 = atrous_block(pool1, atrous_kernel_side, 2, num_kernels, exp=2)
         num_kernels *= 2
-        #output: lxlx512, l = (90 -5)/(stride=1) + 1 = 86
-        #output: 86x86x512
+        #output: lxlx512, l = (92 -5)/(stride=1) + 1 = 88
+        #output: 88x88x512
         print(block2)
         print(num_kernels)
 
@@ -243,35 +245,32 @@ def get(image_, keep_prob=1.0):
                                ksize=[1, 2, 2, 1],
                                strides=[1, 2, 2, 1],
                                padding="VALID")
-    #output: 43x43x512
+    #output: 44x44x512
     print(pool2)
 
     with tf.variable_scope("block3"):
         block3 = atrous_block(pool2, atrous_kernel_side, 2, num_kernels, exp=2)
         num_kernels *= 2
         print(num_kernels)
-        # l = (43-5) +1 = 39
-        #output: 39x39x512
+        # l = (44-5) +1 = 40
+        #output: 40x40x512
     print(block3)
 
-    # 38/2 = 19
-    # 19 = 38 - filter_side + 1 -> filter_side = 38-19 +1 = 20
-    # new filter side = side + (side -1)*(rate -1)
-    # 20 = 3 + (3 - 1)*(rate -1) -> rate = 19/2 = 9.5 -> 10 -> 18x18
+    # 40/2 = 20
     with tf.variable_scope("pool3"):
         pool3 = tf.nn.max_pool(block3,
                                ksize=[1, 2, 2, 1],
                                strides=[1, 2, 2, 1],
                                padding="VALID")
 
-    #output: 19x19x512
+    #output: 23x23x512
     print(pool3)
 
     # fully convolutional layer
-    # take the 85x85x512 input and project it to a 1x1xNUM_NEURONS dim space
+    # take the 20x85x512 input and project it to a 1x1xNUM_NEURONS dim space
     NUM_NEURONS = 1024
     with tf.variable_scope("fc1"):
-        W_fc1 = utils.kernels([19, 19, num_kernels, NUM_NEURONS], "W")
+        W_fc1 = utils.kernels([23, 23, num_kernels, NUM_NEURONS], "W")
         b_fc1 = utils.bias([NUM_NEURONS], "b")
 
         h_fc1 = tf.nn.relu(
