@@ -1,6 +1,5 @@
 import tensorflow as tf
 import utils
-import pascal_input
 """
 The model is fully convolutional, thus it accepts batch of images of any size and produces
 a spatial map of vector.
@@ -23,10 +22,10 @@ LEARNING_RATE_DECAY_FACTOR = 0.1  # Learning rate decay factor.
 INITIAL_LEARNING_RATE = 1e-2  # Initial learning rate.
 
 
-def atrous_layer(x, atrous_kernel_shape, rate):
+def atrous_layer(x, atrous_kernel_shape, rate, padding):
     """
     Returns the result of:
-    ReLU(atrous_conv2d(x, kernels, rate, padding="VALID") + bias).
+    ReLU(atrous_conv2d(x, kernels, rate, padding=padding) + bias).
     Creates kernels (name=kernel), bias (name=bias) and relates summaries.
     
     Args:
@@ -34,6 +33,7 @@ def atrous_layer(x, atrous_kernel_shape, rate):
         atrous_kernel_shape: the shape of W, used in convolution as kernels. [kernel_height, kernel_width, kernel_depth, num_kernels]
         rate: the atrous_conv2d rate parameter
         name: the op name
+        padding; "VALID" | "SAME"
     """
 
     num_kernels = atrous_kernel_shape[3]
@@ -55,78 +55,65 @@ def atrous_layer(x, atrous_kernel_shape, rate):
             tf.nn.atrous_conv2d(x,
                                 kernels,
                                 rate=rate, # rate = 2 means 1 hole
-                                padding="VALID"),
+                                padding=padding),
             bias),
         name="out")
 
 
 def eq_conv(x, atrous_kernel_side, num_kernels, rate, padding=False):
-    """atrous convolute x with num_kenrnels with atrous_kernel_side and specified rate.
-    After:
-    pads x with the right amount of zeros. Convolve the previous filters with the padded input. Applyes relu.
-    Extract with max-pool the dominant contribution of the previous convolution.
-    Subtract the from the max-pooled output the first convolution output.
+    """Pads the input with the right amount of zeros.
+    Atrous convolve the padded input. In that way every pixel of the input image
+    will contribute on average.
+    Than extracts the average contributions of every kernel side x kernel side
+    location in the resulting image, using a stride of 1, and use the average poooling
+    to make the contribution of every location equal.
+    Pads the results with zeros of required
     """
-    atrous_kernel_shape = [atrous_kernel_side, atrous_kernel_side,
-                           x.get_shape()[3].value, num_kernels]
 
-    with tf.variable_scope("eq_conv") as scope:
-        # define an atrous layer and assign the result
-        # of the convolution operation
-        conv = atrous_layer(x, atrous_kernel_shape, rate)
-        print(conv)
+    with tf.variable_scope("eq_conv"):
+        atrous_kernel_shape = [atrous_kernel_side, atrous_kernel_side,
+                               x.get_shape()[3].value, num_kernels]
+        # extract "real" kernel side of the atrous filter
+        real_kernel_side = atrous_kernel_side + (atrous_kernel_side - 1) * (
+            rate - 1)
+        # pad the input with the right amount of padding
+        pad_amount = int((real_kernel_side - 1) / 2)
+        input_padded = tf.pad(x,
+                              [[0, 0], [pad_amount, pad_amount],
+                               [pad_amount, pad_amount], [0, 0]],
+                              name="input_padded")
+        print(input_padded)
 
-    # extract "real" kernel side of the atrous filter
-    real_kernel_side = atrous_kernel_side + (atrous_kernel_side - 1) * (rate -
-                                                                        1)
+        # convolve padded input with learned filters.
+        # using the padded input we can handle border pixesl
+        conv_contribution = atrous_layer(input_padded,
+                                         atrous_kernel_shape,
+                                         rate,
+                                         padding="VALID")
+        print(conv_contribution)
 
-    # pad the input with the right amount of padding
-    pad_amount = int((real_kernel_side - 1) / 2)
-    input_padded = tf.pad(x,
-                          [[0, 0], [pad_amount, pad_amount],
-                           [pad_amount, pad_amount], [0, 0]],
-                          name="input_padded")
-    print(input_padded)
+        # lets make the pixels contribut equally, using average pooling
+        # with a stride of 1 and a ksize equals to the kernel size in order
+        # to reside the contribution output to the original convolution size
+        # eg: the result of a convolution without the input padded
+        eq = tf.nn.avg_pool(conv_contribution,
+                            ksize=[1, real_kernel_side, real_kernel_side, 1],
+                            strides=[1, 1, 1, 1],
+                            padding="VALID",
+                            name="eq")
+        print(eq)
 
-    # using the learned filters of the previous convolution
-    with tf.variable_scope(scope, reuse=True):
-        kernels = tf.get_variable("kernels")
-        bias = tf.get_variable("bias")
+        if padding:
+            top_bottom = int(
+                (x.get_shape()[1].value - eq.get_shape()[1].value) / 2)
+            left_right = int(
+                (x.get_shape()[2].value - eq.get_shape()[2].value) / 2)
+            eq = tf.pad(eq,
+                        [[0, 0], [top_bottom, top_bottom],
+                         [left_right, left_right], [0, 0]],
+                        name="padded_eq")
 
-    # convolve the padded input with the same filters + bias
-    conv_contribution = tf.add(
-        tf.nn.atrous_conv2d(input_padded,
-                            kernels,
-                            rate, padding="VALID"),
-        bias,
-        name="conv_contribution")
-    print(conv_contribution)
-
-    # extract dominant contribution in the conv_contribution
-    # using max-pooling with stride=1 and kernel size = filter size
-    # dominant_conv_contribution & conv have the same size
-    dominant_conv_contribution = tf.nn.max_pool(
-        conv_contribution,
-        ksize=[1, real_kernel_side, real_kernel_side, 1],
-        strides=[1, 1, 1, 1],
-        padding="VALID",
-        name="dominant_conv_contributions")
-    print(dominant_conv_contribution)
-
-    eq = tf.sub(dominant_conv_contribution, conv, name="sub")
-    print(eq)
-    if padding:
-        top_bottom = int((x.get_shape()[1].value - eq.get_shape()[1].value) /
-                         2)
-        left_right = int((x.get_shape()[2].value - eq.get_shape()[2].value) /
-                         2)
-        eq = tf.pad(eq,
-                    [[0, 0], [top_bottom, top_bottom], [left_right,
-                                                        left_right], [0, 0]],
-                    name="padded_sub")
-
-    eq = tf.nn.relu(eq, name="out")
-    print(eq)
+        print(eq)
     return eq
 
 
@@ -349,7 +336,7 @@ def loss(logits, labels):
 
 def train(loss_op, global_step):
     """
-    Creates an Optimizer and use exponential decay of learning rate
+    Creates an Optimizer.
     Args:
         loss_op: loss from loss()
         global_step: integer variable counting the numer of traning steps processed
@@ -358,21 +345,8 @@ def train(loss_op, global_step):
         train_op: of for training
     """
     with tf.variable_scope("train"):
-        num_batches_per_epoch = pascal_input.NUM_EXAMPLES_PER_EPOCH_FOR_TRAIN / BATCH_SIZE
-        decay_steps = int(num_batches_per_epoch * NUM_EPOCHS_PER_DECAY)
+        optimizer = tf.train.AdadeltaOptimizer(INITIAL_LEARNING_RATE)
+        # minimizes loss and increments global_step by 1
+        minimizer = optimizer.minimize(loss_op, global_step=global_step)
 
-        # decay the learning rate exponentially based on the number of steps
-        learning_rate = tf.train.exponential_decay(
-            INITIAL_LEARNING_RATE,
-            global_step,
-            decay_steps,
-            LEARNING_RATE_DECAY_FACTOR,
-            # decay the learning rate at discrete intervals
-            staircase=True)
-
-        tf.scalar_summary("learning_rate", learning_rate)
-
-        optimizer = tf.train.GradientDescentOptimizer(learning_rate)
-
-    # minimizes loss and increments global_step by 1
-    return optimizer.minimize(loss_op, global_step=global_step)
+    return minimizer
