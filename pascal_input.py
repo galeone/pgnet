@@ -116,30 +116,7 @@ def train_inputs(csv_path, batch_size):
 
     # Apply random distortions to the image
     flipped_image = tf.image.random_flip_left_right(record.image)
-
-    # randomize the order of the random distortions
-    # thank you:
-    # https://stackoverflow.com/questions/37299345/using-if-conditions-inside-a-tensorflow-graph
-    def fn1():
-        distorted_image = tf.image.random_brightness(flipped_image,
-                                                     max_delta=0.7)
-        distorted_image = tf.image.random_contrast(
-            distorted_image, lower=0.4, upper=0.7)
-        return distorted_image
-
-    def fn2():
-        distorted_image = tf.image.random_contrast(
-            flipped_image, lower=0.4, upper=0.7)
-        distorted_image = tf.image.random_brightness(distorted_image,
-                                                     max_delta=0.7)
-        return distorted_image
-
-    p_order = tf.random_uniform(
-        shape=[], minval=0., maxval=1.,
-        dtype=tf.float32)
-    pred = tf.less(p_order, 0.5)
-    distorted_image = tf.cond(pred, fn1, fn2)
-
+    distorted_image = tf.image.random_brightness(flipped_image, max_delta=0.7)
     # Subtract off the mean and divide by the variance of the pixels.
     float_image = tf.image.per_image_whitening(distorted_image)
 
