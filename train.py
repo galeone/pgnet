@@ -29,13 +29,13 @@ CSV_PATH = "~/data/PASCAL_2012_cropped"
 # train & validation parameters
 MAX_ITERATIONS = 10**100 + 1
 DISPLAY_STEP = 1
-MEASUREMENT_STEP = 2
+MEASUREMENT_STEP = 10
 MIN_VALIDATION_ACCURACY = 0.9
 NUM_VALIDATION_BATCHES = int(pascal_input.NUM_EXAMPLES_PER_EPOCH_FOR_EVAL /
                              pgnet.BATCH_SIZE)
 
 # tensorflow saver constant
-SAVE_MODEL_STEP = 3
+SAVE_MODEL_STEP = 1000
 
 
 def train(args):

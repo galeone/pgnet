@@ -20,7 +20,7 @@ NUM_CLASS = 20
 BATCH_SIZE = 32
 NUM_EPOCHS_PER_DECAY = 2  # Epochs after which learning rate decays.
 LEARNING_RATE_DECAY_FACTOR = 0.1  # Learning rate decay factor.
-INITIAL_LEARNING_RATE = 1e-4  # Initial learning rate.
+INITIAL_LEARNING_RATE = 1e-2  # Initial learning rate.
 
 # number of neurons in the last "fully connected" (1x1 conv) layer
 NUM_NEURONS = 1024
