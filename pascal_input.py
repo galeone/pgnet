@@ -18,22 +18,15 @@ def read_cropped_pascal(base_path, queue):
         queue: A queue of strings in the format: file, widht, height, label
 
     Returns:
-        An object representing a single example, with the following fields:
-        key: a scalar string Tensor describing the filename & record number for this example.
-        label: a tensor int64 with the label
         image: a [pgnet.INPUT_SIDE; pgnet.INPUT_SIDE, DEPTH] float32 tensor with the image data, resized with nn interpolation
+        label: a tensor int64 with the label
     """
-
-    class PASCALCroppedRecord(object):
-        pass
-
-    result = PASCALCroppedRecord()
 
     # Reader for text lines
     reader = tf.TextLineReader(skip_header_lines=True)
 
     # read a record from the queue
-    result.key, row = reader.read(queue)
+    _, row = reader.read(queue)
 
     # file,width,height,label
     record_defaults = [[""], [0], [0], [0]]
@@ -51,11 +44,10 @@ def read_cropped_pascal(base_path, queue):
     image = tf.image.resize_nearest_neighbor(image, [pgnet.INPUT_SIDE,
                                                      pgnet.INPUT_SIDE])
     # remove the 1st dimension -> [pgnet.INPUT_SIDE, pgnet.INPUT_SIDE, DEPTH]
-    result.image = tf.reshape(image, [pgnet.INPUT_SIDE, pgnet.INPUT_SIDE,
-                                      DEPTH])
+    image = tf.reshape(image, [pgnet.INPUT_SIDE, pgnet.INPUT_SIDE, DEPTH])
     # convert label to int64, because tensorflow uses it everywhere
-    result.label = tf.cast(label, tf.int64)
-    return result
+    label = tf.cast(label, tf.int64)
+    return image, label
 
 
 def _generate_image_and_label_batch(
@@ -78,9 +70,9 @@ def _generate_image_and_label_batch(
 
     # Create a queue that shuffles the examples, and then
     # read 'batch_size' images + labels from the example queue.
-    num_preprocess_threads = 16
+    num_preprocess_threads = 2
 
-    images, label_batch = tf.train.shuffle_batch(
+    images, sparse_labels = tf.train.shuffle_batch(
         [image, label],
         batch_size=batch_size,
         num_threads=num_preprocess_threads,
@@ -92,7 +84,7 @@ def _generate_image_and_label_batch(
     # else we're validating
     tf.image_summary(task + '/images', images)
 
-    return images, tf.reshape(label_batch, [batch_size])
+    return images, sparse_labels
 
 
 def train_inputs(csv_path, batch_size):
@@ -112,16 +104,16 @@ def train_inputs(csv_path, batch_size):
     queue = tf.train.string_input_producer([csv_path + "train.csv"])
 
     # Read examples from the queue
-    record = read_cropped_pascal(tf.constant(csv_path), queue)
+    image, label = read_cropped_pascal(tf.constant(csv_path), queue)
 
     # Apply random distortions to the image
-    flipped_image = tf.image.random_flip_left_right(record.image)
+    flipped_image = tf.image.random_flip_left_right(image)
     distorted_image = tf.image.random_brightness(flipped_image, max_delta=0.3)
     # Subtract off the mean and divide by the variance of the pixels.
     float_image = tf.image.per_image_whitening(distorted_image)
 
     # Ensure that the random shuffling has good mixing properties.
-    min_fraction_of_examples_in_queue = 0.8
+    min_fraction_of_examples_in_queue = 0.4
     min_queue_examples = int(NUM_EXAMPLES_PER_EPOCH_FOR_TRAIN *
                              min_fraction_of_examples_in_queue)
 
@@ -129,7 +121,7 @@ def train_inputs(csv_path, batch_size):
         'Filling queue with {} pascal cropped images before starting to train. '
         'This will take a few minutes.'.format(min_queue_examples))
     return _generate_image_and_label_batch(float_image,
-                                           record.label,
+                                           label,
                                            min_queue_examples,
                                            batch_size,
                                            task='train')
@@ -151,13 +143,13 @@ def validation_inputs(csv_path, batch_size):
     queue = tf.train.string_input_producer([csv_path + "validation.csv"])
 
     # Read examples from files in the filename queue.
-    record = read_cropped_pascal(tf.constant(csv_path), queue)
+    image, label = read_cropped_pascal(tf.constant(csv_path), queue)
 
     # Subtract off the mean and divide by the variance of the pixels.
-    float_image = tf.image.per_image_whitening(record.image)
+    float_image = tf.image.per_image_whitening(image)
 
     # Ensure that the random shuffling has good mixing properties.
-    min_fraction_of_examples_in_queue = 0.8
+    min_fraction_of_examples_in_queue = 0.4
     min_queue_examples = int(NUM_EXAMPLES_PER_EPOCH_FOR_EVAL *
                              min_fraction_of_examples_in_queue)
 
@@ -169,7 +161,7 @@ def validation_inputs(csv_path, batch_size):
     #   min_after_dequeue + (num_threads + a small safety margin) * batch_size
     # Generate a batch of images and labels by building up a queue of examples.
     return _generate_image_and_label_batch(float_image,
-                                           record.label,
+                                           label,
                                            min_queue_examples,
                                            batch_size,
                                            task='validation')

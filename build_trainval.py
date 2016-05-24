@@ -1,9 +1,8 @@
-"""./pascal_cropper.py PASCAL_2012/VOCdevkit/VOC2012 cropped_dataset train=True
+"""./build_trainval.py PASCAL_2012/VOCdevkit/VOC2012 cropped_dataset
 Extracts the 20 categories from the PASCAL dataset (argv[1]).
 Crop every image to annotated bounding boxes as described in argv[1]/Annotations/
-Creates the cropped_dataset/ts.csv file.
-If train (argv[3]) is present, splits the ts.csv file in train.csv and validation.csv.
-Outputs the average input widht and height.
+Creates the cropped_dataset/ts.csv file. Splits the ts.csv file in train.csv & validation.csv.
+Outputs the average input width and height.
 """
 import xml.etree.ElementTree as etree
 import sys
@@ -13,7 +12,7 @@ from collections import defaultdict
 import math
 import cv2
 
-classes = ["aeroplane", "bicycle", "bird", "boat", "bottle", "bus", "car",
+CLASSES = ["aeroplane", "bicycle", "bird", "boat", "bottle", "bus", "car",
            "cat", "chair", "cow", "diningtable", "dog", "horse", "motorbike",
            "person", "pottedplant", "sheep", "sofa", "train", "tvmonitor"]
 
@@ -25,22 +24,7 @@ def crop(file_name, rect):
     return image[rect[0]:rect[1], rect[2]:rect[3]]
 
 
-# https://stackoverflow.com/questions/431684/how-do-i-cd-in-python/13197763#13197763
-class cd:
-    """Context manager for changing the current working directory"""
-
-    def __init__(self, newPath):
-        self.newPath = os.path.expanduser(newPath)
-
-    def __enter__(self):
-        self.savedPath = os.getcwd()
-        os.chdir(self.newPath)
-
-    def __exit__(self, etype, value, traceback):
-        os.chdir(self.savedPath)
-
-
-field_names = ["file", "width", "height", "label"]
+FIELD_NAMES = ["file", "width", "height", "label"]
 
 
 def split_dataset(base_path):
@@ -59,15 +43,15 @@ def split_dataset(base_path):
     train_file = open(base_path + "/train.csv", "w")
     validation_file = open(base_path + "/validation.csv", "w")
 
-    tf_writer = csv.DictWriter(train_file, field_names)
-    vf_writer = csv.DictWriter(validation_file, field_names)
+    tf_writer = csv.DictWriter(train_file, FIELD_NAMES)
+    vf_writer = csv.DictWriter(validation_file, FIELD_NAMES)
 
     tf_writer.writeheader()
     vf_writer.writeheader()
 
     for label in labels:
         items_count = len(labels[label])
-        validation_count = math.ceil(items_count / 3)
+        validation_count = math.floor(items_count / 3)
 
         print("Label: {}\n\tValidation: {}\n\tTrain: {}".format(
             label, validation_count, items_count - validation_count))
@@ -88,12 +72,9 @@ def main(argv):
     """ main """
     len_argv = len(argv)
     if len_argv not in (2, 3):
-        print(
-            "usage: pascal_cropper.py /path/of/VOC<year> /path/of/output train=True",
-            file=sys.stderr)
+        print("usage: pascal_cropper.py /path/of/VOC<year> /path/of/output",
+              file=sys.stderr)
         return 1
-
-    train = len_argv == 3
 
     if not os.path.exists(argv[0]):
         print("{} does not exists".format(argv[0]))
@@ -109,20 +90,32 @@ def main(argv):
 
     out_path = os.path.abspath(argv[1])
 
-    if train and os.path.exists(out_path + "/ts.csv") and not os.path.exists(
+    if os.path.exists(out_path + "/ts.csv") and not os.path.exists(
             out_path + "/train.csv"):
         return split_dataset(out_path)
 
     with open(out_path + '/ts.csv', mode='w') as csv_file:
         # header
-        writer = csv.DictWriter(csv_file, field_names)
+        writer = csv.DictWriter(csv_file, FIELD_NAMES)
         writer.writeheader()
 
-        images_path = argv[0] + "/JPEGImages/"
+        images_path = "{}/JPEGImages/".format(argv[0])
 
-        with cd(argv[0] + "/Annotations/"):
-            i = 0
-            for image_xml in os.listdir("."):
+        i = 0
+        for current_class in CLASSES:
+            lines = open("{}/ImageSets/Main/{}_trainval.txt".format(argv[
+                0], current_class)).read().strip().split("\n")
+
+            for line in lines:
+                splitted = line.split()
+                if len(splitted) < 1:
+                    print(splitted, line, current_class)
+                if splitted[1] == "-1":
+                    continue
+                image_xml = "{}/Annotations/{}.xml".format(argv[0],
+                                                           splitted[0])
+                image_file = "{}.jpg".format(splitted[0])
+
                 tree = etree.parse(image_xml)
                 root = tree.getroot()
                 size = root.find('size')
@@ -130,42 +123,34 @@ def main(argv):
                 height = int(size.find('height').text)
 
                 for obj in root.iter('object'):
-                    # skip difficult & object.name not in classes
+                    # skip difficult & object.name not in current class
                     label = obj.find('name').text
 
-                    if train:
-                        if label not in classes or int(obj.find(
-                                'difficult').text) == 1:
-                            continue
-                    else:
-                        # some image in the test dataset doesn't have
-                        # the difficult parameter. Check only the class
-                        if label not in classes:
-                            continue
+                    if label != current_class:
+                        continue
 
-                    bb = obj.find('bndbox')
+                    difficult = obj.find('difficult').text
+                    if int(difficult) == 1:
+                        continue
+
+                    bndbox = obj.find('bndbox')
                     rect = [0, 0, 0, 0]
                     #y1
-                    rect[0] = int(float(bb.find('ymin').text))
+                    rect[0] = int(float(bndbox.find('ymin').text))
                     #y2
-                    rect[1] = int(float(bb.find('ymax').text))
+                    rect[1] = int(float(bndbox.find('ymax').text))
                     #x1
-                    rect[2] = int(float(bb.find('xmin').text))
+                    rect[2] = int(float(bndbox.find('xmin').text))
                     #x2
-                    rect[3] = int(float(bb.find('xmax').text))
+                    rect[3] = int(float(bndbox.find('xmax').text))
 
-                    image_file = image_xml.replace(".xml", ".jpg")
                     roi = crop(images_path + image_file, rect)
-
                     width, height = roi.shape[1], roi.shape[0]
-
                     avg_shape[0] += width
                     avg_shape[1] += height
 
-                    i += 1
-
                     # use numeric id for label in csv
-                    label_id = classes.index(label)
+                    label_id = CLASSES.index(current_class)
 
                     # save file and append row to csv
                     cv2.imwrite(out_path + "/" + image_file, roi)
@@ -173,11 +158,12 @@ def main(argv):
                                      "width": width,
                                      "height": height,
                                      "label": label_id})
+                    i += 1
 
-            print("Average width & height")
-            print(int(float(avg_shape[0] / i)), int(float(avg_shape[1] / i)))
+        print("Average width & height")
+        print(int(float(avg_shape[0] / i)), int(float(avg_shape[1] / i)))
 
-            return split_dataset(out_path) if train else 0
+        return split_dataset(out_path)
 
 
 if __name__ == '__main__':

@@ -4,6 +4,8 @@ import cv2
 import tensorflow as tf
 import numpy as np
 import utils
+import pascal_input
+
 
 def atrous_layer(x, atrous_kernel_shape, rate, padding):
     """
@@ -56,7 +58,6 @@ def eq_conv(x, atrous_kernel_side, num_kernels, rate, padding=False):
     atrous_kernel_shape = [atrous_kernel_side, atrous_kernel_side,
                            x.get_shape()[3].value, num_kernels]
 
-
     with tf.variable_scope("eq_conv") as scope:
 
         # extract "real" kernel side of the atrous filter
@@ -107,6 +108,7 @@ def eq_conv(x, atrous_kernel_side, num_kernels, rate, padding=False):
         print(eq)
     return conv_contribution, eq, std_conv
 
+
 image_path = "/data/PASCAL_2012_cropped/2010_003078.jpg"
 image = cv2.imread(image_path)
 image1 = cv2.imread(image_path)
@@ -121,11 +123,18 @@ reshaped_input_tensor = tf.reshape(
     [-1, image.shape[0], image.shape[1], image.shape[2]])
 print(reshaped_input_tensor)
 
+CSV_PATH = "~/data/PASCAL_2012_cropped"
+train_images_queue, train_labels_queue = pascal_input.train_inputs(CSV_PATH,
+                                                                   10)
+validation_images_queue, validation_labels_queue = pascal_input.validation_inputs(
+    CSV_PATH, 10)
+
 conv_contrib_op, eq_op, std_conv_op = eq_conv(reshaped_input_tensor, 3, 3, 2)
 init = tf.initialize_all_variables()
 
 with tf.Session() as sess:
     sess.run(init)
+    """
     print(image.shape)
     print(kernels.get_shape())
     reshaped_input = reshaped_input_tensor.eval()
@@ -142,5 +151,21 @@ with tf.Session() as sess:
     cv2.imshow("eq conv (avg_pool)", tf.cast(eq[0], tf.uint8).eval())
     print("eq_convg avg-pool size")
     print(eq[0].shape)
-
     cv2.waitKey(0)
+    """
+
+    tf.train.start_queue_runners(sess=sess)
+    train_images, train_labels = sess.run([train_images_queue,
+                                           train_labels_queue])
+    print(train_labels)
+    print(train_images_queue)
+    for img in train_images:
+        cv2.imshow("wat", img)
+        cv2.waitKey(0)
+
+    validation_images, validation_labels = sess.run([validation_images_queue,
+                                                     validation_labels_queue])
+    print(validation_labels)
+    for img in validation_images:
+        cv2.imshow("walidat", img)
+        cv2.waitKey(0)
