@@ -116,7 +116,7 @@ def train_inputs(csv_path, batch_size):
 
     # Apply random distortions to the image
     flipped_image = tf.image.random_flip_left_right(record.image)
-    distorted_image = tf.image.random_brightness(flipped_image, max_delta=0.7)
+    distorted_image = tf.image.random_brightness(flipped_image, max_delta=0.3)
     # Subtract off the mean and divide by the variance of the pixels.
     float_image = tf.image.per_image_whitening(distorted_image)
 

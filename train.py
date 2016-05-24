@@ -26,11 +26,16 @@ TRAINED_MODEL_FILENAME = "model.pb"
 # cropped pascal parameters
 CSV_PATH = "~/data/PASCAL_2012_cropped"
 
-# train parameters
+# train & validation parameters
 MAX_ITERATIONS = 10**100 + 1
 DISPLAY_STEP = 1
-VALIDATION_STEP = 100
+MEASUREMENT_STEP = 2
 MIN_VALIDATION_ACCURACY = 0.9
+NUM_VALIDATION_BATCHES = int(pascal_input.NUM_EXAMPLES_PER_EPOCH_FOR_EVAL /
+                             pgnet.BATCH_SIZE)
+
+# tensorflow saver constant
+SAVE_MODEL_STEP = 3
 
 
 def train(args):
@@ -57,11 +62,11 @@ def train(args):
 
             with tf.variable_scope("train_input"):
                 # get the train input
-                train_images, train_labels = pascal_input.train_inputs(
+                train_images_queue, train_labels_queue = pascal_input.train_inputs(
                     CSV_PATH, pgnet.BATCH_SIZE)
 
             with tf.variable_scope("validation_input"):
-                validation_images, validation_labels = pascal_input.validation_inputs(
+                validation_images_queue, validation_labels_queue = pascal_input.validation_inputs(
                     CSV_PATH, pgnet.BATCH_SIZE)
 
             with tf.device(args.device):  #GPU
@@ -84,7 +89,10 @@ def train(args):
                 # train op
                 train_op = pgnet.train(loss_op, global_step)
 
-            with tf.variable_scope("validation_accuracy"):
+            # collect summaries for the previous defined variables
+            summary_op = tf.merge_all_summaries()
+
+            with tf.variable_scope("accuracy"):
                 # reshape logits to a [-1, NUM_CLASS] vector
                 # (remeber that pgnet is fully convolutional)
                 reshaped_logits = tf.reshape(logits, [-1, pgnet.NUM_CLASS])
@@ -93,30 +101,30 @@ def train(args):
                 # reshaped_logits contains NUM_CLASS values in NUM_CLASS
                 # positions. Each value is the probability for the position class.
                 # Returns the index (thus the label) with highest probability, for each line
-                # [-1] vector
+                # [BATCH_SIZE] vector
                 predictions = tf.argmax(reshaped_logits, 1)
 
                 # correct predictions
-                # [-1] vector
-                correct_predictions = tf.equal(validation_labels, predictions)
-                # validation_accuracy per batch
-                validation_accuracy_per_batch = tf.reduce_mean(
+                # [BATCH_SIZE] vector
+                correct_predictions = tf.equal(labels_, predictions)
+
+                accuracy = tf.reduce_mean(
                     tf.cast(correct_predictions, tf.float32),
-                    name="validation_accuracy_per_batch")
+                    name="accuracy")
 
-                # define a placeholder for the average validation_accuracy over the validation dataset
-                average_validation_accuracy_ = tf.placeholder(
-                    tf.float32, name="avg_validation_accuracy")
+                # use a separate summary op for the accuracy (that's shared between test
+                # and validation)
+
+                # change only the content of the placeholder that names the summary
+                accuracy_name_ = tf.placeholder(tf.string, [])
+
                 # attach a summary to the placeholder
-                tf.scalar_summary("avg_validation_accuracy",
-                                  average_validation_accuracy_)
+                accuracy_summary_op = tf.scalar_summary(accuracy_name_,
+                                                        accuracy)
 
-                # create a saver: to store current computation and restore the graph
-                # useful when the train step has been interrupeted
+            # create a saver: to store current computation and restore the graph
+            # useful when the train step has been interrupeted
             saver = tf.train.Saver(tf.all_variables())
-
-            # collect summaries
-            summary_op = tf.merge_all_summaries()
 
             # tensor flow operator to initialize all the variables in a session
             init_op = tf.initialize_all_variables()
@@ -140,95 +148,96 @@ def train(args):
                                                         graph=sess.graph)
 
                 total_start = time.time()
-                validation_accuracy = 0.0
                 for step in range(MAX_ITERATIONS):
                     # get train inputs
-                    images, labels = sess.run([train_images, train_labels])
+                    train_images, train_labels = sess.run([train_images_queue,
+                                                           train_labels_queue])
+
                     start = time.time()
-                    #train
-                    _, loss_val = sess.run(
-                        [train_op, loss_op],
+                    # train, get loss value, get summaries
+                    _, loss_val, summary_line = sess.run(
+                        [train_op, loss_op, summary_op],
                         feed_dict={
                             keep_prob_: 0.5,
-                            images_: images,
-                            labels_: labels,
+                            images_: train_images,
+                            labels_: train_labels,
                         })
-
                     duration = time.time() - start
-                    stop_train = False
+
+                    # save summary for current step
+                    summary_writer.add_summary(summary_line, global_step=step)
+
                     if np.isnan(loss_val):
                         print('Model diverged with loss = NaN',
                               file=sys.stderr)
                         # print reshaped logits value for debug purposes
-                        print(sess.run(reshaped_logits,
-                                       feed_dict={
-                                           keep_prob_: 1.,
-                                           images_: images,
-                                           labels_: labels
-                                       }))
+                        print(
+                            sess.run(reshaped_logits,
+                                     feed_dict={
+                                         keep_prob_: 1.0,
+                                         images_: train_images,
+                                         labels_: train_labels
+                                     }),
+                            file=sys.stderr)
                         return 1
 
-                    if step % VALIDATION_STEP == 0 and step > 0:
-                        num_validation_batches = int(
-                            pascal_input.NUM_EXAMPLES_PER_EPOCH_FOR_EVAL /
-                            pgnet.BATCH_SIZE)
-                        validation_accuracy_sum = 0.0
-                        # early stop: if the accuracy batch is less then the MIN_VALIDATION_ACCURACY/2
-                        # the probability that the global accuracy is >= MIN_VALIDATION_ACCURACY is low
-                        used_batches = 0
-                        for i in range(num_validation_batches):
-                            # get validation inputs
-                            # do not override images,labels variable that are required in summeries
-                            imgs, lbls = sess.run([validation_images,
-                                                   validation_labels])
-                            batch_validation_accuracy = sess.run(
-                                validation_accuracy_per_batch,
-                                feed_dict={
-                                    images_: imgs,
-                                    labels_: lbls,
-                                    keep_prob_: 1.0
-                                })
-
-                            used_batches += 1
-                            print("Validation batch {}, accuracy: {}".format(
-                                i + 1, batch_validation_accuracy))
-                            validation_accuracy_sum += batch_validation_accuracy
-                            if batch_validation_accuracy <= MIN_VALIDATION_ACCURACY / 2:
-                                break
-
-                        validation_accuracy = validation_accuracy_sum / used_batches
-                        # save validation_accuracy in summary (on next display step) stop_train
-                        if validation_accuracy > MIN_VALIDATION_ACCURACY:
-                            stop_train = True
-
                     if step % DISPLAY_STEP == 0 and step > 0:
-                        num_examples_per_step = pgnet.BATCH_SIZE
-                        examples_per_sec = num_examples_per_step / duration
+                        examples_per_sec = pgnet.BATCH_SIZE / duration
                         sec_per_batch = float(duration)
                         print(
                             "{} step: {} loss: {} ({} examples/sec; {} batch/sec)".format(
                                 datetime.now(), step, loss_val,
                                 examples_per_sec, sec_per_batch))
 
-                        # create summary for this train step
-                        summary_line = sess.run(
-                            summary_op,
-                            feed_dict={keep_prob_: 0.5,
-                                       average_validation_accuracy_:
-                                       validation_accuracy,
-                                       images_: images,
-                                       labels_: labels})
+                    validation_accuracy_reached = False
+                    if step % MEASUREMENT_STEP == 0 and step > 0:
+                        # get validation inputs
+                        validation_images, validation_labels = sess.run(
+                            [validation_images_queue, validation_labels_queue])
 
-                        # global_step in add_summary is the local step (thank you tensorflow)
+                        validation_accuracy, summary_line = sess.run(
+                            [accuracy, accuracy_summary_op],
+                            feed_dict={
+                                images_: validation_images,
+                                labels_: validation_labels,
+                                keep_prob_: 1.0,
+                                accuracy_name_: "validation_accuracy"
+                            })
+
+                        # save summary for validation_accuracy
                         summary_writer.add_summary(summary_line,
                                                    global_step=step)
 
+                        if validation_accuracy > MIN_VALIDATION_ACCURACY:
+                            validation_accuracy_reached = True
+
+                        test_accuracy, summary_line = sess.run(
+                            [accuracy, accuracy_summary_op],
+                            feed_dict={
+                                images_: train_images,
+                                labels_: train_labels,
+                                keep_prob_: 1.0,
+                                accuracy_name_: "training_accuracy"
+                            })
+                        # save summary for training accuracy
+                        summary_writer.add_summary(summary_line,
+                                                   global_step=step)
+
+                        print(
+                            "{} step: {} validation accuracy: {} training accuracy: {}".format(
+                                datetime.now(
+                                ), step, validation_accuracy, test_accuracy))
+
+                    if step % SAVE_MODEL_STEP == 0 or (
+                            step + 1
+                    ) == MAX_ITERATIONS or validation_accuracy_reached:
                         # save the current session (until this step) in the session dir
                         # export a checkpint in the format SESSION_DIR/model-<global_step>.meta
                         # always pass 0 to global step in order to have only one file in the folder
                         saver.save(sess, SESSION_DIR + "/model", global_step=0)
-                        if stop_train:
-                            break
+
+                    if validation_accuracy_reached:
+                        break
 
                 # end of train
                 print("Train completed in {}".format(time.time() -
