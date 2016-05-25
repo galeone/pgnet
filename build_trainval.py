@@ -4,6 +4,7 @@ Crop every image to annotated bounding boxes as described in argv[1]/Annotations
 Creates the cropped_dataset/ts.csv file. Splits the ts.csv file in train.csv & validation.csv.
 Outputs the average input width and height.
 """
+import glob
 import xml.etree.ElementTree as etree
 import sys
 import os
@@ -16,15 +17,13 @@ CLASSES = ["aeroplane", "bicycle", "bird", "boat", "bottle", "bus", "car",
            "cat", "chair", "cow", "diningtable", "dog", "horse", "motorbike",
            "person", "pottedplant", "sheep", "sofa", "train", "tvmonitor"]
 
+FIELD_NAMES = ["file", "width", "height", "label"]
+
 
 def crop(file_name, rect):
     """Read file_name, extracts the ROI using rect[y1,y2,x1,x2]"""
-
     image = cv2.imread(file_name)
     return image[rect[0]:rect[1], rect[2]:rect[3]]
-
-
-FIELD_NAMES = ["file", "width", "height", "label"]
 
 
 def split_dataset(base_path):
@@ -34,11 +33,15 @@ def split_dataset(base_path):
     # every list contains the rows for the specified label
     print("Splitting dataset...")
     labels = defaultdict(list)
+    tot_line = 0
     with open(base_path + "/ts.csv", 'r') as ts_file:
         reader = csv.DictReader(ts_file)
         for row in reader:
             label = row["label"]
             labels[label].append(row)
+            tot_line += 1
+
+    print(tot_line)
 
     train_file = open(base_path + "/train.csv", "w")
     validation_file = open(base_path + "/validation.csv", "w")
@@ -52,16 +55,18 @@ def split_dataset(base_path):
     for label in labels:
         items_count = len(labels[label])
         validation_count = math.floor(items_count / 3)
+        train_count = items_count - validation_count
 
-        print("Label: {}\n\tValidation: {}\n\tTrain: {}".format(
-            label, validation_count, items_count - validation_count))
+        print("Label: {}\n\tItems:{}\n\tValidation: {}\n\tTrain: {}".format(
+            label, items_count, validation_count, train_count))
 
-        while validation_count >= 0:
+        while validation_count > 0:
             vf_writer.writerow(labels[label].pop())
             validation_count -= 1
 
-        while labels[label] != []:
+        while train_count > 0:
             tf_writer.writerow(labels[label].pop())
+            train_count -= 1
 
     train_file.close()
     validation_file.close()
@@ -90,10 +95,17 @@ def main(argv):
 
     out_path = os.path.abspath(argv[1])
 
-    if os.path.exists(out_path + "/ts.csv") and not os.path.exists(
-            out_path + "/train.csv"):
+    if os.path.exists(out_path + "/ts.csv") and (
+            not os.path.exists(out_path + "/train.csv") or
+            not os.path.exists(out_path + "/validation.csv")):
         return split_dataset(out_path)
 
+    if os.path.exists(out_path + "/ts.csv"):
+        print("Dataset already created. Remove {}/ts.csv to rebuild it".format(
+            out_path))
+        return 0
+
+    i = 0
     with open(out_path + '/ts.csv', mode='w') as csv_file:
         # header
         writer = csv.DictWriter(csv_file, FIELD_NAMES)
@@ -101,7 +113,6 @@ def main(argv):
 
         images_path = "{}/JPEGImages/".format(argv[0])
 
-        i = 0
         for current_class in CLASSES:
             lines = open("{}/ImageSets/Main/{}_trainval.txt".format(argv[
                 0], current_class)).read().strip().split("\n")
@@ -152,18 +163,25 @@ def main(argv):
                     # use numeric id for label in csv
                     label_id = CLASSES.index(current_class)
 
+                    # check if the the image file name (witout suffix)
+                    # is already present in the destionation folder
+                    # this means that in the same original image we got multiple classes.
+                    look_for = "{}/{}*.jpg".format(out_path, splitted[0])
+                    in_folder = len(glob.glob(look_for))
+                    new_image_file = "{}_{}.jpg".format(splitted[0], in_folder)
+
                     # save file and append row to csv
-                    cv2.imwrite(out_path + "/" + image_file, roi)
-                    writer.writerow({"file": image_file,
+                    cv2.imwrite(out_path + "/" + new_image_file, roi)
+                    writer.writerow({"file": new_image_file,
                                      "width": width,
                                      "height": height,
                                      "label": label_id})
                     i += 1
 
-        print("Average width & height")
-        print(int(float(avg_shape[0] / i)), int(float(avg_shape[1] / i)))
+    print("Average width & height")
+    print(int(float(avg_shape[0] / i)), int(float(avg_shape[1] / i)))
 
-        return split_dataset(out_path)
+    return split_dataset(out_path)
 
 
 if __name__ == '__main__':
