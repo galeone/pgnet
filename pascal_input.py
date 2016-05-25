@@ -7,8 +7,10 @@ DEPTH = 3
 
 # Global constants describing the cropped pascale data set.
 NUM_CLASSES = 20
-NUM_EXAMPLES_PER_EPOCH_FOR_TRAIN = 23758
-NUM_EXAMPLES_PER_EPOCH_FOR_EVAL = 11918
+NUM_EXAMPLES_PER_EPOCH_FOR_TRAIN = 18307
+NUM_EXAMPLES_PER_EPOCH_FOR_EVAL = 9143
+
+# sum = 27450 = PASCAL trainval size
 
 
 def read_cropped_pascal(base_path, queue):
@@ -70,7 +72,7 @@ def _generate_image_and_label_batch(
 
     # Create a queue that shuffles the examples, and then
     # read 'batch_size' images + labels from the example queue.
-    num_preprocess_threads = 2
+    num_preprocess_threads = 8
 
     images, sparse_labels = tf.train.shuffle_batch(
         [image, label],
@@ -113,7 +115,7 @@ def train_inputs(csv_path, batch_size):
     float_image = tf.image.per_image_whitening(distorted_image)
 
     # Ensure that the random shuffling has good mixing properties.
-    min_fraction_of_examples_in_queue = 0.4
+    min_fraction_of_examples_in_queue = 0.8
     min_queue_examples = int(NUM_EXAMPLES_PER_EPOCH_FOR_TRAIN *
                              min_fraction_of_examples_in_queue)
 
@@ -149,7 +151,7 @@ def validation_inputs(csv_path, batch_size):
     float_image = tf.image.per_image_whitening(image)
 
     # Ensure that the random shuffling has good mixing properties.
-    min_fraction_of_examples_in_queue = 0.4
+    min_fraction_of_examples_in_queue = 0.8
     min_queue_examples = int(NUM_EXAMPLES_PER_EPOCH_FOR_EVAL *
                              min_fraction_of_examples_in_queue)
 
