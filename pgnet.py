@@ -1,5 +1,4 @@
 import tensorflow as tf
-import pascal_input
 import utils
 """
 The model is fully convolutional, thus it accepts batch of images of any size and produces
@@ -18,9 +17,7 @@ NUM_CLASS = 20
 
 # train constants
 BATCH_SIZE = 32
-NUM_EPOCHS_PER_DECAY = 10  # Epochs after which learning rate decays.
-LEARNING_RATE_DECAY_FACTOR = 0.1  # Learning rate decay factor.
-INITIAL_LEARNING_RATE = 1e-2  # Initial learning rate.
+LEARNING_RATE = 1e-2  # Initial learning rate.
 
 # number of neurons in the last "fully connected" (1x1 conv) layer
 NUM_NEURONS = 1024
@@ -244,19 +241,8 @@ def train(loss_op, global_step):
         train_op: of for training
     """
     # Variables that affect learning rate.
-    num_batches_per_epoch = pascal_input.NUM_EXAMPLES_PER_EPOCH_FOR_TRAIN / BATCH_SIZE
-    decay_steps = int(num_batches_per_epoch * NUM_EPOCHS_PER_DECAY)
-
     with tf.variable_scope("train"):
-        # Decay the learning rate exponentially based on the number of steps.
-        learning_rate = tf.train.exponential_decay(INITIAL_LEARNING_RATE,
-                                                   global_step,
-                                                   decay_steps,
-                                                   LEARNING_RATE_DECAY_FACTOR,
-                                                   staircase=True)
-
-        tf.scalar_summary('learning_rate', learning_rate)
-        optimizer = tf.train.AdadeltaOptimizer(learning_rate)
+        optimizer = tf.train.AdadeltaOptimizer(LEARNING_RATE)
         # minimizes loss and increments global_step by 1
         minimizer = optimizer.minimize(loss_op, global_step=global_step)
 

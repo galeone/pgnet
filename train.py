@@ -131,6 +131,26 @@ def train(args):
 
             with tf.Session(
                     config=tf.ConfigProto(allow_soft_placement=True)) as sess:
+
+                def validate():
+                    """get validation inputs and run validation.
+                    Returns:
+                        validation_accuracy, summary_line
+                    """
+                    # get validation inputs
+                    validation_images, validation_labels = sess.run(
+                        [validation_images_queue, validation_labels_queue])
+
+                    validation_accuracy, summary_line = sess.run(
+                        [accuracy, accuracy_summary_op],
+                        feed_dict={
+                            images_: validation_images,
+                            labels_: validation_labels,
+                            keep_prob_: 1.0,
+                            accuracy_name_: "validation_accuracy"
+                        })
+                    return validation_accuracy, summary_line
+
                 # initialize variables
                 sess.run(init_op)
 
@@ -191,26 +211,23 @@ def train(args):
 
                     validation_accuracy_reached = False
                     if step % MEASUREMENT_STEP == 0 and step > 0:
-                        # get validation inputs
-                        validation_images, validation_labels = sess.run(
-                            [validation_images_queue, validation_labels_queue])
-
-                        validation_accuracy, summary_line = sess.run(
-                            [accuracy, accuracy_summary_op],
-                            feed_dict={
-                                images_: validation_images,
-                                labels_: validation_labels,
-                                keep_prob_: 1.0,
-                                accuracy_name_: "validation_accuracy"
-                            })
-
+                        validation_accuracy, summary_line = validate()
                         # save summary for validation_accuracy
                         summary_writer.add_summary(summary_line,
                                                    global_step=step)
 
                         if validation_accuracy > MIN_VALIDATION_ACCURACY:
+                            # check if the min_validation_accuracy has been reached
+                            # in every validation batch
                             validation_accuracy_reached = True
+                            for _ in range(NUM_VALIDATION_BATCHES):
+                                current_batch_validation_accuracy, _ = validate(
+                                )
+                                if current_batch_validation_accuracy <= MIN_VALIDATION_ACCURACY:
+                                    validation_accuracy_reached = False
+                                    break
 
+                        # test accuracy
                         test_accuracy, summary_line = sess.run(
                             [accuracy, accuracy_summary_op],
                             feed_dict={

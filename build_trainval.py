@@ -19,6 +19,8 @@ CLASSES = ["aeroplane", "bicycle", "bird", "boat", "bottle", "bus", "car",
 
 FIELD_NAMES = ["file", "width", "height", "label"]
 
+VALIDATION_DATASET_PERCENTACE = 1 / 10
+
 
 def crop(file_name, rect):
     """Read file_name, extracts the ROI using rect[y1,y2,x1,x2]"""
@@ -27,11 +29,13 @@ def crop(file_name, rect):
 
 
 def split_dataset(base_path):
-    """Split the out_path/ts.csv file into train and test csv files
-    The distribution is 2/3 train, 1/3 validation for every class."""
+    """Split the out_path/ts.csv file into train and test csv files.
+    Creates validation.csv and train.csv in the current directory.
+    Splits accoring to the VALIDATION_DATASET_PERCENTACE"""
     # create a dictionary of list
     # every list contains the rows for the specified label
-    print("Splitting dataset...")
+    print("Splitting dataset.\nValidation percentage: {}".format(
+        VALIDATION_DATASET_PERCENTACE))
     labels = defaultdict(list)
     tot_line = 0
     with open(base_path + "/ts.csv", 'r') as ts_file:
@@ -41,10 +45,12 @@ def split_dataset(base_path):
             labels[label].append(row)
             tot_line += 1
 
-    print(tot_line)
+    print("Numer of examples: {}".format(tot_line))
+    current_dir = os.path.abspath(os.getcwd())
+    print("Creating train.csv, validation.csv in {}".format(current_dir))
 
-    train_file = open(base_path + "/train.csv", "w")
-    validation_file = open(base_path + "/validation.csv", "w")
+    train_file = open("{}/train.csv".format(current_dir), "w")
+    validation_file = open("{}/validation.csv".format(current_dir), "w")
 
     tf_writer = csv.DictWriter(train_file, FIELD_NAMES)
     vf_writer = csv.DictWriter(validation_file, FIELD_NAMES)
@@ -54,7 +60,8 @@ def split_dataset(base_path):
 
     for label in labels:
         items_count = len(labels[label])
-        validation_count = math.floor(items_count / 3)
+        validation_count = math.floor(items_count *
+                                      VALIDATION_DATASET_PERCENTACE)
         train_count = items_count - validation_count
 
         print("Label: {}\n\tItems:{}\n\tValidation: {}\n\tTrain: {}".format(
@@ -77,8 +84,9 @@ def main(argv):
     """ main """
     len_argv = len(argv)
     if len_argv not in (2, 3):
-        print("usage: pascal_cropper.py /path/of/VOC<year> /path/of/output",
-              file=sys.stderr)
+        print(
+            "usage: pascal_cropper.py /path/of/VOC<year> /path/of/cropped_dataset/",
+            file=sys.stderr)
         return 1
 
     if not os.path.exists(argv[0]):
@@ -94,19 +102,22 @@ def main(argv):
     avg_shape = [0, 0, 3]
 
     out_path = os.path.abspath(argv[1])
+    current_dir = os.path.abspath(os.getcwd())
 
-    if os.path.exists(out_path + "/ts.csv") and (
-            not os.path.exists(out_path + "/train.csv") or
-            not os.path.exists(out_path + "/validation.csv")):
+    ts_csv_abs = "{}/ts.csv".format(out_path)
+
+    if os.path.exists(ts_csv_abs) and (
+            not os.path.exists("{}/train.csv".format(current_dir)) or
+            not os.path.exists("{}/validation.csv".format(current_dir))):
         return split_dataset(out_path)
 
-    if os.path.exists(out_path + "/ts.csv"):
-        print("Dataset already created. Remove {}/ts.csv to rebuild it".format(
-            out_path))
+    if os.path.exists(ts_csv_abs):
+        print("Dataset already exists. Remove {} to rebuild it".format(
+            ts_csv_abs))
         return 0
 
     i = 0
-    with open(out_path + '/ts.csv', mode='w') as csv_file:
+    with open(ts_csv_abs, mode='w') as csv_file:
         # header
         writer = csv.DictWriter(csv_file, FIELD_NAMES)
         writer.writeheader()

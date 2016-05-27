@@ -7,16 +7,16 @@ DEPTH = 3
 
 # Global constants describing the cropped pascale data set.
 NUM_CLASSES = 20
-NUM_EXAMPLES_PER_EPOCH_FOR_TRAIN = 18307
-NUM_EXAMPLES_PER_EPOCH_FOR_EVAL = 9143
+NUM_EXAMPLES_PER_EPOCH_FOR_TRAIN = 24715
+NUM_EXAMPLES_PER_EPOCH_FOR_EVAL = 2735
 
 # sum = 27450 = PASCAL trainval size
 
 
-def read_cropped_pascal(base_path, queue):
+def read_cropped_pascal(cropped_dataset_path, queue):
     """ Reads and parses files from the queue.
     Args:
-        base_path: a constant string tensor representing the path of the cropped dataset
+        cropped_dataset_path: a constant string tensor representing the path of the cropped dataset
         queue: A queue of strings in the format: file, widht, height, label
 
     Returns:
@@ -36,7 +36,7 @@ def read_cropped_pascal(base_path, queue):
     image_path, _, _, label = tf.decode_csv(
         row, record_defaults, field_delim=",")
 
-    image_path = base_path + tf.constant("/") + image_path
+    image_path = cropped_dataset_path + tf.constant("/") + image_path
     image = tf.image.decode_jpeg(tf.read_file(image_path))
 
     #reshape to a 4-d tensor (required to resize)
@@ -89,28 +89,55 @@ def _generate_image_and_label_batch(
     return images, sparse_labels
 
 
-def train_inputs(csv_path, batch_size):
+def train_inputs(cropped_dataset_path,
+                 batch_size,
+                 csv_path=os.path.abspath(os.getcwd())):
     """Returns a batch of images from the train dataset.
     Applies random distortion to the examples.
 
     Args:
-        csv_path: path of the cropped pascal dataset
+        cropped_dataset_path: path of the cropped pascal dataset
         batch_size: Number of images per batch.
+        csv_path: path of train.csv
     Returns:
         images: Images. 4D tensor of [batch_size, pgnet.INPUT_SIDE, pgnet.INPUT_SIDE, DEPTH size.
         labes: Labels. 1D tensor of [batch_size] size.
     """
-    csv_path = os.path.abspath(os.path.expanduser(csv_path)).rstrip("/") + "/"
+    cropped_dataset_path = os.path.abspath(os.path.expanduser(
+        cropped_dataset_path)).rstrip("/") + "/"
+    csv_path = csv_path.rstrip("/") + "/"
 
     # Create a queue that produces the filenames (and other atrributes) to read
     queue = tf.train.string_input_producer([csv_path + "train.csv"])
 
     # Read examples from the queue
-    image, label = read_cropped_pascal(tf.constant(csv_path), queue)
+    image, label = read_cropped_pascal(
+        tf.constant(cropped_dataset_path), queue)
 
     # Apply random distortions to the image
     flipped_image = tf.image.random_flip_left_right(image)
-    distorted_image = tf.image.random_brightness(flipped_image, max_delta=0.3)
+
+    # randomize the order of the random distortions
+    # thanks to: https://stackoverflow.com/questions/37299345/using-if-conditions-inside-a-tensorflow-graph
+    def fn1():
+        distorted_image = tf.image.random_brightness(flipped_image,
+                                                     max_delta=0.4)
+        distorted_image = tf.image.random_contrast(
+            distorted_image, lower=0.2, upper=1.2)
+        return distorted_image
+
+    def fn2():
+        distorted_image = tf.image.random_contrast(
+            flipped_image, lower=0.2, upper=1.2)
+        distorted_image = tf.image.random_brightness(distorted_image,
+                                                     max_delta=0.4)
+        return distorted_image
+
+    p_order = tf.random_uniform(
+        shape=[], minval=0.0,
+        maxval=1.0, dtype=tf.float32)
+    distorted_image = tf.cond(tf.less(p_order, 0.5), fn1, fn2)
+
     # Subtract off the mean and divide by the variance of the pixels.
     float_image = tf.image.per_image_whitening(distorted_image)
 
@@ -129,23 +156,29 @@ def train_inputs(csv_path, batch_size):
                                            task='train')
 
 
-def validation_inputs(csv_path, batch_size):
+def validation_inputs(cropped_dataset_path,
+                      batch_size,
+                      csv_path=os.path.abspath(os.getcwd())):
     """Returns a batch of images from the validation dataset
 
     Args:
-        csv_path: path of the cropped pascal dataset
+        cropped_dataset_path: path of the cropped pascal dataset
         batch_size: Number of images per batch.
+        csv_path: path of valdation.csv
     Returns:
         images: Images. 4D tensor of [batch_size, pgnet.INPUT_SIDE, pgnet.INPUT_SIDE, DEPTH size.
         labes: Labels. 1D tensor of [batch_size] size.
     """
 
-    csv_path = os.path.abspath(os.path.expanduser(csv_path)).rstrip("/") + "/"
+    cropped_dataset_path = os.path.abspath(os.path.expanduser(
+        cropped_dataset_path)).rstrip("/") + "/"
+    csv_path = csv_path.rstrip("/") + "/"
 
     queue = tf.train.string_input_producer([csv_path + "validation.csv"])
 
     # Read examples from files in the filename queue.
-    image, label = read_cropped_pascal(tf.constant(csv_path), queue)
+    image, label = read_cropped_pascal(
+        tf.constant(cropped_dataset_path), queue)
 
     # Subtract off the mean and divide by the variance of the pixels.
     float_image = tf.image.per_image_whitening(image)
