@@ -38,6 +38,73 @@ NUM_VALIDATION_BATCHES = int(pascal_input.NUM_EXAMPLES_PER_EPOCH_FOR_EVAL /
 SAVE_MODEL_STEP = 1000
 
 
+def define_model():
+    """ define the model with its inputs.
+    Use this function to define the model in training and when exporting the model
+    in the protobuf format. We're not interested in the oter variables.
+
+    Return:
+        keep_prob_: model dropput placeholder
+        images_: input images placeholder
+        logits: the model output
+    """
+    # model dropout keep_prob placeholder
+    keep_prob_ = tf.placeholder(tf.float32, name="keep_prob")
+    images_ = tf.placeholder(tf.float32,
+                             shape=[None, pgnet.INPUT_SIDE, pgnet.INPUT_SIDE,
+                                    pgnet.INPUT_DEPTH],
+                             name="images_")
+
+    # build a graph that computes the logits predictions from the images
+    logits = pgnet.get(images_, keep_prob_)
+    return keep_prob_, images_, logits
+
+
+def export_model():
+    """Export model defines the model in a new empty graph.
+    Creates a saver for the model.
+    Restores the session if exists, othervise prints an error and returns -1
+    Once the session has beeen restored, writes in the SESSION_DIR the graphs skeleton
+    and creates the model.pb file, that holds the computational graph of the model and
+    its inputs."""
+    # if the trained model does not exist
+    if not os.path.exists(TRAINED_MODEL_FILENAME):
+        # create an empth graph
+        graph = tf.Graph()
+        with graph.as_default():
+            # inject in the default graph the model structure
+            define_model()
+            # create a saver, to restore the graph in the session_dir
+            saver = tf.train.Saver(tf.all_variables())
+
+            # create a new session
+            with tf.Session() as sess:
+                # restore previous session if exists
+                checkpoint = tf.train.get_checkpoint_state(SESSION_DIR)
+                if checkpoint and checkpoint.model_checkpoint_path:
+                    saver.restore(sess, checkpoint.model_checkpoint_path)
+                else:
+                    print("[E] Unable to restore from checkpoint",
+                          file=sys.stderr)
+                    return -1
+
+                # save model skeleton (the empty graph, its definition)
+                tf.train.write_graph(graph.as_graph_def(),
+                                     SESSION_DIR,
+                                     "skeleton.pb",
+                                     as_text=False)
+
+                freeze_graph.freeze_graph(SESSION_DIR + "/skeleton.pb", "",
+                                          True, SESSION_DIR + "/model-0",
+                                          "softmax_linear/out",
+                                          "save/restore_all", "save/Const:0",
+                                          TRAINED_MODEL_FILENAME, False, "")
+    else:
+        print("{} already exists. Skipping export_model".format(
+            TRAINED_MODEL_FILENAME))
+    return 0
+
+
 def train(args):
     """train model"""
 
@@ -54,8 +121,6 @@ def train(args):
         # create a scope for the graph. Place operations on cpu:0
         # if not otherwise specified
         with graph.as_default(), tf.device('/cpu:0'):
-            # model dropout keep_prob placeholder
-            keep_prob_ = tf.placeholder(tf.float32, name="keep_prob")
 
             # train global step
             global_step = tf.Variable(0, trainable=False)
@@ -74,14 +139,8 @@ def train(args):
                 labels_ = tf.placeholder(tf.int64,
                                          shape=[None],
                                          name="labels_")
-                images_ = tf.placeholder(tf.float32,
-                                         shape=[None, pgnet.INPUT_SIDE,
-                                                pgnet.INPUT_SIDE,
-                                                pgnet.INPUT_DEPTH],
-                                         name="images_")
 
-                # build a graph that computes the logits predictions from the model
-                logits = pgnet.get(images_, keep_prob_)
+                keep_prob_, images_, logits = define_model()
 
                 # loss op
                 loss_op = pgnet.loss(logits, labels_)
@@ -263,17 +322,8 @@ def train(args):
                 # save train summaries to disk
                 summary_writer.flush()
 
-                # save model skeleton (the empty graph, its definition)
-                tf.train.write_graph(graph.as_graph_def(),
-                                     SESSION_DIR,
-                                     "skeleton.pb",
-                                     as_text=False)
-
-                freeze_graph.freeze_graph(SESSION_DIR + "/skeleton.pb", "",
-                                          True, SESSION_DIR + "/model-0",
-                                          "softmax_linear/out",
-                                          "save/restore_all", "save/Const:0",
-                                          TRAINED_MODEL_FILENAME, False, "")
+        # if here, the summary dir contains the trained model
+        export_model()
     else:
         print("Trained model {} already exits".format(TRAINED_MODEL_FILENAME))
     return 0
