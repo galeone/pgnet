@@ -66,3 +66,4 @@ session/*
 model.pb
 validation.csv
 train.csv
+results/*
