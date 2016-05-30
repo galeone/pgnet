@@ -49,7 +49,7 @@ def define_model():
         logits: the model output
     """
     # model dropout keep_prob placeholder
-    keep_prob_ = tf.placeholder(tf.float32, name="keep_prob")
+    keep_prob_ = tf.placeholder(tf.float32, name="keep_prob_")
     images_ = tf.placeholder(tf.float32,
                              shape=[None, pgnet.INPUT_SIDE, pgnet.INPUT_SIDE,
                                     pgnet.INPUT_DEPTH],
