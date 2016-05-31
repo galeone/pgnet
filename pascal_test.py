@@ -110,7 +110,7 @@ def main(args):
 
 if __name__ == "__main__":
     # pylint: disable=C0103
-    parser = argparse.ArgumentParser(description="Train the model")
+    parser = argparse.ArgumentParser(description="Test the model")
     parser.add_argument("--device", default="/gpu:1")
     parser.add_argument("--test-ds")
     sys.exit(main(parser.parse_args()))
