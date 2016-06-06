@@ -17,9 +17,10 @@ import argparse
 import os
 import sys
 import tensorflow as tf
-import build_trainval
 import pgnet
 import train
+import pascal_input
+import build_trainval
 
 
 def main(args):
@@ -34,10 +35,6 @@ def main(args):
 
     current_dir = os.path.abspath(os.getcwd())
     results_dir = "{}/results".format(current_dir)
-
-    # open the test.txt file and extract the content (files to test)
-    lines = open("{}/ImageSets/Main/test.txt".format(args.test_ds)).read(
-    ).strip().split("\n")
 
     ##### Image classification competition #####
     # open a file for every class
@@ -58,55 +55,86 @@ def main(args):
 
         # exteact the pgnet output from the graph and scale the result
         # using softmax
-
         softmax_linear = graph.get_tensor_by_name("softmax_linear/out:0")
         # softmax_linear is the output of a 1x1xNUM_CLASS convolution
         # to use the softmax we have to reshape it back to (?,NUM_CLASS)
         softmax_linear = tf.reshape(softmax_linear, [-1, pgnet.NUM_CLASS])
         softmax = tf.nn.softmax(softmax_linear, name="softmax")
 
-        base_path = "{}/JPEGImages/".format(args.test_ds)
+        # get the input queue of resized (or cropped) test images
+        # use 29 as batch_size because is a divisor of the test dataset size
+        test_center_cropped_queue, test_center_cropped_filename_queue = pascal_input.test(
+            args.test_ds,
+            29,
+            args.test_ds + "/ImageSets/Main/test.txt",
+            method="central-crop")
+
+        test_nn_queue, test_nn_filename_queue = pascal_input.test(
+            args.test_ds,
+            29,
+            args.test_ds + "/ImageSets/Main/test.txt",
+            method="resize-nn")
+
+        init_op = tf.initialize_all_variables()
+
         with tf.Session(config=tf.ConfigProto(
                 allow_soft_placement=True)) as sess:
-            print("Processing {} files".format(len(lines)))
-            for idx, image_line in enumerate(lines):
-                # prepend the path
-                image_path = tf.constant("{}{}.jpg".format(base_path,
-                                                           image_line))
-                # read the image
-                image = tf.image.decode_jpeg(tf.read_file(image_path))
 
-                # subtract off the mean and divide by the variance of the pixels
-                image = tf.image.per_image_whitening(image)
+            sess.run(init_op)
 
-                # crop/reshape image for evaluation
-                # Bug in tf not solved yet:
-                # https://github.com/tensorflow/tensorflow/issues/521
-                # we can't use resize_image_with_crop_or_pad
-                #image = tf.image.resize_image_with_crop_or_pad(
-                #    image, pgnet.INPUT_SIDE, pgnet.INPUT_SIDE)
+            # Start input enqueue threads.
+            print("Starting input enqueue threads. Please wait...")
+            coord = tf.train.Coordinator()
+            threads = tf.train.start_queue_runners(sess=sess, coord=coord)
 
-                # Instead we use resize_nearest_neigbor
-                # pgnet accepts a batch of images as input, add the "batch" dimension.
-                # in addiction, resize_nearest_neigbor accepts batch of images only
-                image = tf.expand_dims(image, 0)
+            try:
+                processed = 0
+                while not coord.should_stop():
+                    # extract batches from queues
+                    image_batch_cropped, filename_batch_cropped = sess.run(
+                        [test_center_cropped_queue,
+                         test_center_cropped_filename_queue])
+                    image_batch_nn, filename_batch_nn = sess.run(
+                        [test_nn_queue, test_nn_filename_queue])
 
-                image = tf.image.resize_nearest_neighbor(
-                    image, [pgnet.INPUT_SIDE, pgnet.INPUT_SIDE])
-                # feed the input placeholder _images with the current "batch" (1) of image
-                print("{}: {}".format(idx, image_line))
-                image_evaluated = image.eval()
-                predictions_prob = sess.run(softmax,
-                                            feed_dict={
-                                                "keep_prob_:0": 1.0,
-                                                "images_:0": image_evaluated,
-                                            })
+                    # run predction on images central cropped (or padded)
+                    batch_predictions_cropped = sess.run(
+                        softmax,
+                        feed_dict={
+                            "keep_prob_:0": 1.0,
+                            "images_:0": image_batch_cropped,
+                        })
+                    # run prediction on images resized with nn
+                    batch_predictions_nn = sess.run(softmax,
+                                                    feed_dict={
+                                                        "keep_prob_:0": 1.0,
+                                                        "images_:0":
+                                                        image_batch_nn,
+                                                    })
 
-                # remove batch size (we're processing one image at time)
-                predictions_prob = predictions_prob[0]
-                for idx, pred in enumerate(predictions_prob):
-                    files[build_trainval.CLASSES[idx]].write("{} {}\n".format(
-                        image_line, pred))
+                    for batch_elem_id, prediction_probs in enumerate(
+                            batch_predictions_cropped):
+                        decoded_filename = filename_batch_cropped[
+                            batch_elem_id].decode("utf-8")
+                        print(decoded_filename)
+                        for idx, pred in enumerate(prediction_probs):
+                            avg_pred = (
+                                pred + batch_predictions_nn[batch_elem_id][idx]
+                            ) / 2
+                            files[build_trainval.CLASSES[idx]].write(
+                                "{} {}\n".format(decoded_filename, avg_pred))
+
+                        processed += 1
+
+            except tf.errors.OutOfRangeError:
+                print("[I] Done. Test completed!")
+                print("Processed {} images".format(processed))
+            finally:
+                # When done, ask the threads to stop.
+                coord.request_stop()
+
+            # Wait for threads to finish.
+            coord.join(threads)
 
         # close all files
         for label in files:
