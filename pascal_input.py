@@ -1,6 +1,7 @@
 import os
 import tensorflow as tf
 import pgnet
+import resize_image_with_crop_or_pad_pipeline as riwcop
 
 # The depth of the example
 DEPTH = 3
@@ -91,9 +92,9 @@ def _generate_image_and_label_batch(image,
     return images, sparse_labels
 
 
-def train_inputs(cropped_dataset_path,
-                 batch_size,
-                 csv_path=os.path.abspath(os.getcwd())):
+def train(cropped_dataset_path,
+          batch_size,
+          csv_path=os.path.abspath(os.getcwd())):
     """Returns a batch of images from the train dataset.
     Applies random distortion to the examples.
 
@@ -161,9 +162,9 @@ def train_inputs(cropped_dataset_path,
                                            task='train')
 
 
-def validation_inputs(cropped_dataset_path,
-                      batch_size,
-                      csv_path=os.path.abspath(os.getcwd())):
+def validation(cropped_dataset_path,
+               batch_size,
+               csv_path=os.path.abspath(os.getcwd())):
     """Returns a batch of images from the validation dataset
 
     Args:
@@ -205,3 +206,66 @@ def validation_inputs(cropped_dataset_path,
                                            min_queue_examples,
                                            batch_size,
                                            task='validation')
+
+
+def test(test_dataset_path,
+         batch_size,
+         file_list_path=os.path.abspath(os.getcwd()),
+         method="central-crop"):
+    """Returns a batch of images from the test dataset.
+
+    Args:
+        test_dataset_path: path of the test dataset
+        batch_size: Number of images per batch.
+        file_list_path: path (into the test dataset usually) where to find the list of file to read.
+                        specify the filename and the path here, eg:
+                         ~/data/PASCAL_2012/test/VOCdevkit/VOC2012/ImageSets/Main/test.txt
+    Returns:
+        images: Images. 4D tensor of [batch_size, pgnet.INPUT_SIDE, pgnet.INPUT_SIDE, DEPTH] size.
+        filenames: file names. [batch_size] tensor with the fileneme read. (without extension)
+    """
+
+    test_dataset_path = os.path.abspath(os.path.expanduser(
+        test_dataset_path)).rstrip("/") + "/"
+
+    # read every line in the file, only once
+    queue = tf.train.string_input_producer([file_list_path],
+                                           num_epochs=1,
+                                           shuffle=False)
+
+    # Reader for text lines
+    reader = tf.TextLineReader()
+
+    # read a record from the queue
+    _, filename = reader.read(queue)
+
+    image_path = test_dataset_path + tf.constant(
+        "/JPEGImages/") + filename + tf.constant(".jpg")
+
+    assert method == "central-crop" or method == "resize-nn"
+
+    img_bytes = tf.read_file(image_path)
+    img_u8 = tf.image.decode_jpeg(img_bytes, channels=pgnet.INPUT_DEPTH)
+    image = tf.image.convert_image_dtype(img_u8, dtype=tf.float32)
+    if method == "central-crop":
+        image = riwcop.resize_image_with_crop_or_pad(image, pgnet.INPUT_SIDE,
+                                                     pgnet.INPUT_SIDE)
+    else:
+        image = tf.expand_dims(image, 0)
+        image = tf.image.resize_nearest_neighbor(
+            image, [pgnet.INPUT_SIDE, pgnet.INPUT_SIDE])
+        image = tf.reshape(image, [pgnet.INPUT_SIDE, pgnet.INPUT_SIDE, DEPTH])
+
+        # Subtract off the mean and divide by the variance of the pixels.
+    float_image = tf.image.per_image_whitening(image)
+
+    # create a batch of images & filenames
+    # (using a queue runner, that extracts image from the queue)
+    images, filenames = tf.train.batch(
+        [float_image, filename],
+        batch_size,
+        shapes=[[pgnet.INPUT_SIDE, pgnet.INPUT_SIDE, pgnet.INPUT_DEPTH], []],
+        num_threads=1,
+        capacity=20000,
+        enqueue_many=False)
+    return images, filenames
