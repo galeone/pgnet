@@ -66,4 +66,8 @@ session/*
 model.pb
 validation.csv
 train.csv
-results/*
+results/VOC2012/Action/*.txt
+results/VOC2012/Layout/*.txt
+results/VOC2012/Main/*.txt
+results/VOC2012/Segmentation/*.txt
+results.tgz

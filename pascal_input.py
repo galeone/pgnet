@@ -33,8 +33,9 @@ def read_cropped_pascal(cropped_dataset_path, queue):
     # file,width,height,label
     record_defaults = [[""], [0], [0], [0]]
 
-    image_path, _, _, label = tf.decode_csv(
-        row, record_defaults, field_delim=",")
+    image_path, _, _, label = tf.decode_csv(row,
+                                            record_defaults,
+                                            field_delim=",")
 
     image_path = cropped_dataset_path + tf.constant("/") + image_path
     image = tf.image.decode_jpeg(tf.read_file(image_path))
@@ -52,10 +53,11 @@ def read_cropped_pascal(cropped_dataset_path, queue):
     return image, label
 
 
-def _generate_image_and_label_batch(
-        image, label,
-        min_queue_examples,
-        batch_size, task='train'):
+def _generate_image_and_label_batch(image,
+                                    label,
+                                    min_queue_examples,
+                                    batch_size,
+                                    task='train'):
     """Construct a queued batch of images and labels.
     Args:
       image: 3-D Tensor of [pgnet.INPUT_SIDE, pgnet.INPUT_SIDE, DEPTH] of type.float32.
@@ -122,20 +124,23 @@ def train_inputs(cropped_dataset_path,
     def fn1():
         distorted_image = tf.image.random_brightness(flipped_image,
                                                      max_delta=0.4)
-        distorted_image = tf.image.random_contrast(
-            distorted_image, lower=0.2, upper=1.2)
+        distorted_image = tf.image.random_contrast(distorted_image,
+                                                   lower=0.2,
+                                                   upper=1.2)
         return distorted_image
 
     def fn2():
-        distorted_image = tf.image.random_contrast(
-            flipped_image, lower=0.2, upper=1.2)
+        distorted_image = tf.image.random_contrast(flipped_image,
+                                                   lower=0.2,
+                                                   upper=1.2)
         distorted_image = tf.image.random_brightness(distorted_image,
                                                      max_delta=0.4)
         return distorted_image
 
-    p_order = tf.random_uniform(
-        shape=[], minval=0.0,
-        maxval=1.0, dtype=tf.float32)
+    p_order = tf.random_uniform(shape=[],
+                                minval=0.0,
+                                maxval=1.0,
+                                dtype=tf.float32)
     distorted_image = tf.cond(tf.less(p_order, 0.5), fn1, fn2)
 
     # Subtract off the mean and divide by the variance of the pixels.

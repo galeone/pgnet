@@ -91,8 +91,9 @@ def bias(shape, name, init_val=0.0):
     """ bias returns a tensor with the requested shape, initialized with init_val.
     Creates summaries too.
     Returns the bias"""
-    b = tf.get_variable(
-        name, shape, initializer=tf.constant_initializer(init_val))
+    b = tf.get_variable(name,
+                        shape,
+                        initializer=tf.constant_initializer(init_val))
     _ = variable_summaries(b, b.name)
     return b
 

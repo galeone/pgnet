@@ -34,7 +34,14 @@ cd -
 
 ## Network structure
 
-## Atrous Convolutions
-The usage of Atrous Convolutions (Convolution with holes) gives us the possibility to have a small number of parameters with a greater perception field.
+## PASCAL VOC 2012 challenge results
 
-This two features in conjuction with the absence of padding, can be used to remove the (max-)pooling step at the end of the convolutional layer.
+Test the architecture with.
+
+```
+python pascal_test.py ~/data/PASCAL_2012/test/VOCdevkit/VOC2012/
+```
+
+`pascal_test.py` creates the txt files in the result folder, following the guidelines of the PASCAL VOC 2012 challenge.
+
+Creates the archives with `tar -cvzf results.tgz results` and submit the result to the evaluation server: http://host.robots.ox.ac.uk:8080/

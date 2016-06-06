@@ -1,10 +1,16 @@
 """./pascal_test.py PASCAL_2012_test_dataset/VOCdevkit/VOC2012
 
 Reads the file list in: argv[1]/ImageSets/Main/test.txt
-Creates in the current directory a subfolder for the results (results/).
-For every of the 20 classes, creates a file with the following format:
+
+
+Image classification competition resuts:
+    for every of the 20 classes, creates a file with the following format:
+
+    ```
     filename: comp1_cls_test_<class>.txt:
-    <filename (no extension)> confidence // eg: 2009_000001 0.056313
+    <filename (no extension)> confidence // eg: 2009_000001 0.0563131
+    ```
+    The results are placed in the directory `results/VOC2012/Main/`
 """
 
 import argparse
@@ -28,16 +34,15 @@ def main(args):
 
     current_dir = os.path.abspath(os.getcwd())
     results_dir = "{}/results".format(current_dir)
-    if not os.path.exists(results_dir):
-        os.makedirs(results_dir)
 
     # open the test.txt file and extract the content (files to test)
     lines = open("{}/ImageSets/Main/test.txt".format(args.test_ds)).read(
     ).strip().split("\n")
 
+    ##### Image classification competition #####
     # open a file for every class
-    files = {label:
-             open(results_dir + "/comp1_cls_test_{}.txt".format(label), "w")
+    files = {label: open(
+        results_dir + "/VOC2012/Main/comp1_cls_test_{}.txt".format(label), "w")
              for label in build_trainval.CLASSES}
 
     with tf.Graph().as_default() as graph, tf.device(args.device):
@@ -110,7 +115,7 @@ def main(args):
 
 if __name__ == "__main__":
     # pylint: disable=C0103
-    parser = argparse.ArgumentParser(description="Train the model")
+    parser = argparse.ArgumentParser(description="Test the model")
     parser.add_argument("--device", default="/gpu:1")
     parser.add_argument("--test-ds")
     sys.exit(main(parser.parse_args()))

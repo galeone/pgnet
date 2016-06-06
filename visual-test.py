@@ -69,9 +69,8 @@ def eq_conv(x, atrous_kernel_side, num_kernels, rate, padding=False):
 
         # pad the input with the right amount of padding
         pad_amount = int((real_kernel_side - 1) / 2)
-        input_padded = tf.pad(x,
-                              [[0, 0], [pad_amount, pad_amount],
-                               [pad_amount, pad_amount], [0, 0]],
+        input_padded = tf.pad(x, [[0, 0], [pad_amount, pad_amount],
+                                  [pad_amount, pad_amount], [0, 0]],
                               name="input_padded")
         print(input_padded)
 
@@ -102,9 +101,8 @@ def eq_conv(x, atrous_kernel_side, num_kernels, rate, padding=False):
                 (x.get_shape()[1].value - eq.get_shape()[1].value) / 2)
             left_right = int(
                 (x.get_shape()[2].value - eq.get_shape()[2].value) / 2)
-            eq = tf.pad(eq,
-                        [[0, 0], [top_bottom, top_bottom],
-                         [left_right, left_right], [0, 0]],
+            eq = tf.pad(eq, [[0, 0], [top_bottom, top_bottom],
+                             [left_right, left_right], [0, 0]],
                         name="padded_eq")
         print(eq)
     return conv_contribution, eq, std_conv

@@ -64,9 +64,8 @@ def eq_conv_layer(input_x, kernel_side, num_kernels):
 
         # pad the input with the right amount of padding
         pad_amount = int((kernel_side - 1) / 2)
-        input_padded = tf.pad(input_x,
-                              [[0, 0], [pad_amount, pad_amount],
-                               [pad_amount, pad_amount], [0, 0]],
+        input_padded = tf.pad(input_x, [[0, 0], [pad_amount, pad_amount],
+                                        [pad_amount, pad_amount], [0, 0]],
                               name="input_padded")
         print(input_padded)
         return conv_layer(input_padded, kernel_shape, padding="VALID")
