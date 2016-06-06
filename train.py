@@ -127,11 +127,11 @@ def train(args):
 
             with tf.variable_scope("train_input"):
                 # get the train input
-                train_images_queue, train_labels_queue = pascal_input.train_inputs(
+                train_images_queue, train_labels_queue = pascal_input.train(
                     CSV_PATH, pgnet.BATCH_SIZE)
 
             with tf.variable_scope("validation_input"):
-                validation_images_queue, validation_labels_queue = pascal_input.validation_inputs(
+                validation_images_queue, validation_labels_queue = pascal_input.validation(
                     CSV_PATH, pgnet.BATCH_SIZE)
 
             with tf.device(args.device):  #GPU
