@@ -14,6 +14,37 @@ NUM_EXAMPLES_PER_EPOCH_FOR_EVAL = 2735
 # sum = 27450 = PASCAL trainval size
 
 
+def read_image(image_path):
+    """Reads the image from image_path (tf.string tensor) [jpg image].
+    Cast the result to float32.
+    Reuturn:
+        the decoded jpege image, casted to float32
+    """
+    return tf.image.convert_image_dtype(
+        tf.image.decode_jpeg(
+            tf.read_file(image_path),
+            channels=pgnet.INPUT_DEPTH),
+        dtype=tf.float32)
+
+
+def resize_nn(image):
+    """Returns the image, resized with the nearest neighbor interpolation to:
+    pgnet.INPUT_SIDE x pgnet.INPUT_SIDE.
+    Input:
+        image: 3d tensor widht shape [width, height, depth]
+    """
+
+    #reshape to a 4-d tensor (required to resize)
+    image = tf.expand_dims(image, 0)
+
+    # now image is 4-D float32 tensor: [1,pgnet.INPUT_SIDE,pgnet.INPUT_SIDE, DEPTH]
+    image = tf.image.resize_nearest_neighbor(image, [pgnet.INPUT_SIDE,
+                                                     pgnet.INPUT_SIDE])
+    # remove the 1st dimension -> [pgnet.INPUT_SIDE, pgnet.INPUT_SIDE, DEPTH]
+    image = tf.reshape(image, [pgnet.INPUT_SIDE, pgnet.INPUT_SIDE, DEPTH])
+    return image
+
+
 def read_cropped_pascal(cropped_dataset_path, queue):
     """ Reads and parses files from the queue.
     Args:
@@ -21,8 +52,10 @@ def read_cropped_pascal(cropped_dataset_path, queue):
         queue: A queue of strings in the format: file, widht, height, label
 
     Returns:
-        image: a [pgnet.INPUT_SIDE; pgnet.INPUT_SIDE, DEPTH] float32 tensor with the image data, resized with nn interpolation
-        label: a tensor int64 with the label
+        image_path: a tf.string tensor. The absolute path of the image in the dataset
+        label: a int64 tensor with the label
+        widht: a int64 tensor with the widht
+        height: a int64 tensor with the height
     """
 
     # Reader for text lines
@@ -34,24 +67,15 @@ def read_cropped_pascal(cropped_dataset_path, queue):
     # file,width,height,label
     record_defaults = [[""], [0], [0], [0]]
 
-    image_path, _, _, label = tf.decode_csv(row,
-                                            record_defaults,
-                                            field_delim=",")
+    image_path, width, height, label = tf.decode_csv(row,
+                                                     record_defaults,
+                                                     field_delim=",")
 
     image_path = cropped_dataset_path + tf.constant("/") + image_path
-    image = tf.image.decode_jpeg(tf.read_file(image_path))
-
-    #reshape to a 4-d tensor (required to resize)
-    image = tf.expand_dims(image, 0)
-
-    # now image is 4-D float32 tensor: [1,pgnet.INPUT_SIDE,pgnet.INPUT_SIDE, DEPTH]
-    image = tf.image.resize_nearest_neighbor(image, [pgnet.INPUT_SIDE,
-                                                     pgnet.INPUT_SIDE])
-    # remove the 1st dimension -> [pgnet.INPUT_SIDE, pgnet.INPUT_SIDE, DEPTH]
-    image = tf.reshape(image, [pgnet.INPUT_SIDE, pgnet.INPUT_SIDE, DEPTH])
-    # convert label to int64, because tensorflow uses it everywhere
     label = tf.cast(label, tf.int64)
-    return image, label
+    width = tf.cast(width, tf.int64)
+    height = tf.cast(height, tf.int64)
+    return image_path, label, width, height
 
 
 def _generate_image_and_label_batch(image,
@@ -114,8 +138,27 @@ def train(cropped_dataset_path,
     queue = tf.train.string_input_producer([csv_path + "train.csv"])
 
     # Read examples from the queue
-    image, label = read_cropped_pascal(
+    image_path, label, widht, height = read_cropped_pascal(
         tf.constant(cropped_dataset_path), queue)
+
+    # read the image and cast it to float32
+    image = read_image(image_path)
+
+    def random_crop_it():
+        return tf.random_crop(
+            image, [pgnet.INPUT_SIDE, pgnet.INPUT_SIDE, pgnet.INPUT_DEPTH])
+
+    def resize_it():
+        return resize_nn(image)
+
+    input_side_const = tf.constant(pgnet.INPUT_SIDE, dtype=tf.int64)
+
+    # if image.width >= pgnet.side and image.height >= pgnet.input side: random crop it, else resize it
+    image = tf.cond(
+        tf.logical_and(
+            tf.greater_equal(widht, input_side_const),
+            tf.greater_equal(height, input_side_const)), random_crop_it,
+        resize_it)
 
     # Apply random distortions to the image
     flipped_image = tf.image.random_flip_left_right(image)
@@ -145,7 +188,7 @@ def train(cropped_dataset_path,
     distorted_image = tf.cond(tf.less(p_order, 0.5), fn1, fn2)
 
     # Subtract off the mean and divide by the variance of the pixels.
-    float_image = tf.image.per_image_whitening(distorted_image)
+    image = tf.image.per_image_whitening(distorted_image)
 
     # Ensure that the random shuffling has good mixing properties.
     min_fraction_of_examples_in_queue = 0.8
@@ -155,7 +198,7 @@ def train(cropped_dataset_path,
     print(
         'Filling queue with {} pascal cropped images before starting to train. '
         'This will take a few minutes.'.format(min_queue_examples))
-    return _generate_image_and_label_batch(float_image,
+    return _generate_image_and_label_batch(image,
                                            label,
                                            min_queue_examples,
                                            batch_size,
@@ -183,11 +226,17 @@ def validation(cropped_dataset_path,
     queue = tf.train.string_input_producer([csv_path + "validation.csv"])
 
     # Read examples from files in the filename queue.
-    image, label = read_cropped_pascal(
+    image_path, label, _, _ = read_cropped_pascal(
         tf.constant(cropped_dataset_path), queue)
 
+    # read image
+    image = read_image(image_path)
+
+    # resize image
+    image = resize_nn(image)
+
     # Subtract off the mean and divide by the variance of the pixels.
-    float_image = tf.image.per_image_whitening(image)
+    image = tf.image.per_image_whitening(image)
 
     # Ensure that the random shuffling has good mixing properties.
     min_fraction_of_examples_in_queue = 0.8
@@ -201,7 +250,7 @@ def validation(cropped_dataset_path,
     #   determines the maximum we will prefetch.  Recommendation:
     #   min_after_dequeue + (num_threads + a small safety margin) * batch_size
     # Generate a batch of images and labels by building up a queue of examples.
-    return _generate_image_and_label_batch(float_image,
+    return _generate_image_and_label_batch(image,
                                            label,
                                            min_queue_examples,
                                            batch_size,
@@ -244,25 +293,20 @@ def test(test_dataset_path,
 
     assert method == "central-crop" or method == "resize-nn"
 
-    img_bytes = tf.read_file(image_path)
-    img_u8 = tf.image.decode_jpeg(img_bytes, channels=pgnet.INPUT_DEPTH)
-    image = tf.image.convert_image_dtype(img_u8, dtype=tf.float32)
+    image = read_image(image_path)
     if method == "central-crop":
         image = riwcop.resize_image_with_crop_or_pad(image, pgnet.INPUT_SIDE,
                                                      pgnet.INPUT_SIDE)
     else:
-        image = tf.expand_dims(image, 0)
-        image = tf.image.resize_nearest_neighbor(
-            image, [pgnet.INPUT_SIDE, pgnet.INPUT_SIDE])
-        image = tf.reshape(image, [pgnet.INPUT_SIDE, pgnet.INPUT_SIDE, DEPTH])
+        image = resize_nn(image)
 
-        # Subtract off the mean and divide by the variance of the pixels.
-    float_image = tf.image.per_image_whitening(image)
+    # Subtract off the mean and divide by the variance of the pixels.
+    image = tf.image.per_image_whitening(image)
 
     # create a batch of images & filenames
     # (using a queue runner, that extracts image from the queue)
     images, filenames = tf.train.batch(
-        [float_image, filename],
+        [image, filename],
         batch_size,
         shapes=[[pgnet.INPUT_SIDE, pgnet.INPUT_SIDE, pgnet.INPUT_DEPTH], []],
         num_threads=1,
