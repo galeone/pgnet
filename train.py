@@ -27,15 +27,20 @@ TRAINED_MODEL_FILENAME = "model.pb"
 CSV_PATH = "~/data/PASCAL_2012_cropped"
 
 # train & validation parameters
-MAX_ITERATIONS = 10**100 + 1
-DISPLAY_STEP = 1
-MEASUREMENT_STEP = 10
-MIN_VALIDATION_ACCURACY = 0.9
-NUM_VALIDATION_BATCHES = int(pascal_input.NUM_EXAMPLES_PER_EPOCH_FOR_EVAL /
-                             pgnet.BATCH_SIZE)
+DISPLAY_STEP = 10
+MEASUREMENT_STEP = 20
+MIN_VALIDATION_ACCURACY = 0.95
+STEP_FOR_EPOCH = pascal_input.NUM_EXAMPLES_PER_EPOCH_FOR_TRAIN
+MAX_ITERATIONS = STEP_FOR_EPOCH * 500
+
+# stop when
+AVG_VALIDATION_ACCURACY_EPOCHS = 10
+# list of average validation at the end of every epoch
+AVG_VALIDATION_ACCURACIES = [0.0
+                             for _ in range(AVG_VALIDATION_ACCURACY_EPOCHS)]
 
 # tensorflow saver constant
-SAVE_MODEL_STEP = 1000
+SAVE_MODEL_STEP = 500
 
 
 def define_model():
@@ -227,6 +232,8 @@ def train(args):
                                                         graph=sess.graph)
 
                 total_start = time.time()
+                current_epoch = 0
+                sum_validation_accuracy = 0
                 for step in range(MAX_ITERATIONS):
                     # get train inputs
                     train_images, train_labels = sess.run([train_images_queue,
@@ -277,14 +284,7 @@ def train(args):
 
                         if validation_accuracy > MIN_VALIDATION_ACCURACY:
                             # check if the min_validation_accuracy has been reached
-                            # in every validation batch
                             validation_accuracy_reached = True
-                            for _ in range(NUM_VALIDATION_BATCHES):
-                                current_batch_validation_accuracy, _ = validate(
-                                )
-                                if current_batch_validation_accuracy <= MIN_VALIDATION_ACCURACY:
-                                    validation_accuracy_reached = False
-                                    break
 
                         # test accuracy
                         test_accuracy, summary_line = sess.run(
@@ -303,6 +303,33 @@ def train(args):
                             "{} step: {} validation accuracy: {} training accuracy: {}".format(
                                 datetime.now(
                                 ), step, validation_accuracy, test_accuracy))
+
+                        sum_validation_accuracy += validation_accuracy
+
+                    if step % STEP_FOR_EPOCH == 0 and step > 0:
+                        # current validation accuracy
+                        current_validation_accuracy = sum_validation_accuracy / STEP_FOR_EPOCH
+                        print(
+                            "Epoch {} finised. Average validation accuracy/epoch: {}".format(
+                                current_epoch, current_validation_accuracy))
+
+                        # sum previous avg accuracy
+                        history_avg_accuracy = sum(
+                            AVG_VALIDATION_ACCURACIES) / AVG_VALIDATION_ACCURACY_EPOCHS
+
+                        # if avg accuracy is not increased, after AVG_VALIDATION_ACCURACY_NOT_INCREASED_AFTER_EPOCH, exit
+                        if current_validation_accuracy <= history_avg_accuracy:
+                            print(
+                                "Average validation accuracy not increased after {} epochs. Exit".format(
+                                    AVG_VALIDATION_ACCURACY_EPOCHS))
+                            # exit using validation_accuracy_reached flag, in order to save current status
+                            validation_accuracy_reached = True
+
+                        # save avg validation accuracy in the next slot
+                        AVG_VALIDATION_ACCURACIES[
+                            current_epoch %
+                            AVG_VALIDATION_ACCURACY_EPOCHS] = current_validation_accuracy
+                        current_epoch += 1
 
                     if step % SAVE_MODEL_STEP == 0 or (
                             step + 1
@@ -330,7 +357,6 @@ def train(args):
 
 
 if __name__ == "__main__":
-    # pylint: disable=C0103
     parser = argparse.ArgumentParser(description="Train the model")
     parser.add_argument("--device", default="/gpu:1")
     sys.exit(train(parser.parse_args()))
