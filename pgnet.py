@@ -17,7 +17,7 @@ NUM_CLASS = 20
 
 # train constants
 BATCH_SIZE = 32
-LEARNING_RATE = 1e-2  # Initial learning rate.
+LEARNING_RATE = 1e-3  # Initial learning rate.
 
 # number of neurons in the last "fully connected" (1x1 conv) layer
 NUM_NEURONS = 1024
@@ -102,11 +102,11 @@ def block(input_x, kernel_side, num_kernels, exp):
     return conv4
 
 
-def get(image_, keep_prob=1.0):
+def get(image_, keep_prob_=1.0):
     """
     @input:
         image_ is a tensor with shape [-1, widht, height, depth]
-        keep_prob: dropput probability. Set it to something < 1.0 during train
+        keep_prob_: dropput probability. Set it to something < 1.0 during train
 
     As the net goes deeper, increase the number of filters (using power of 2
     in order to optimize GPU performance).
@@ -187,7 +187,7 @@ def get(image_, keep_prob=1.0):
         fc1 = conv_layer(pool3, [23, 23, num_kernels, NUM_NEURONS],
                          padding="VALID")
         # output: 1x1xNUM_NEURONS
-        dropout = tf.nn.dropout(fc1, keep_prob, name="dropout")
+        dropout = tf.nn.dropout(fc1, keep_prob_, name="dropout")
         print(dropout)
         # output: 1x1xNUM_NEURONS
 
