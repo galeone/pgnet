@@ -8,6 +8,7 @@
 """train the model"""
 
 import argparse
+import math
 import os
 import sys
 import time
@@ -30,7 +31,8 @@ CSV_PATH = "~/data/PASCAL_2012_cropped"
 DISPLAY_STEP = 10
 MEASUREMENT_STEP = 20
 MIN_VALIDATION_ACCURACY = 0.95
-STEP_FOR_EPOCH = pascal_input.NUM_EXAMPLES_PER_EPOCH_FOR_TRAIN
+STEP_FOR_EPOCH = math.ceil(pascal_input.NUM_EXAMPLES_PER_EPOCH_FOR_TRAIN /
+                            pgnet.BATCH_SIZE)
 MAX_ITERATIONS = STEP_FOR_EPOCH * 500
 
 # stop when
