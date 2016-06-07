@@ -6,10 +6,10 @@ import resize_image_with_crop_or_pad_pipeline as riwcop
 # The depth of the example
 DEPTH = 3
 
-# Global constants describing the cropped pascale data set.
+# Global constants describing the cropped pascal data set.
 NUM_CLASSES = 20
-NUM_EXAMPLES_PER_EPOCH_FOR_TRAIN = 24715
-NUM_EXAMPLES_PER_EPOCH_FOR_EVAL = 2735
+NUM_EXAMPLES_PER_EPOCH_FOR_EVAL = 293
+NUM_EXAMPLES_PER_EPOCH_FOR_TRAIN = 27157
 
 # sum = 27450 = PASCAL trainval size
 

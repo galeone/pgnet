@@ -19,7 +19,7 @@ CLASSES = ["aeroplane", "bicycle", "bird", "boat", "bottle", "bus", "car",
 
 FIELD_NAMES = ["file", "width", "height", "label"]
 
-VALIDATION_DATASET_PERCENTACE = 1 / 10
+VALIDATION_DATASET_PERCENTACE = 1 / 90
 
 
 def crop(file_name, rect):
@@ -58,11 +58,15 @@ def split_dataset(base_path):
     tf_writer.writeheader()
     vf_writer.writeheader()
 
+    tot_validation = 0
+
     for label in labels:
         items_count = len(labels[label])
         validation_count = math.floor(items_count *
                                       VALIDATION_DATASET_PERCENTACE)
         train_count = items_count - validation_count
+
+        tot_validation += validation_count
 
         print("Label: {}\n\tItems:{}\n\tValidation: {}\n\tTrain: {}".format(
             label, items_count, validation_count, train_count))
@@ -77,6 +81,9 @@ def split_dataset(base_path):
 
     train_file.close()
     validation_file.close()
+    print(
+        "Number of validation examples: {}\nNumber of training examples: {}".format(
+            tot_validation, tot_line - tot_validation))
     return 0
 
 
