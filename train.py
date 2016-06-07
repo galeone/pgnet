@@ -329,7 +329,9 @@ def train(args):
                         AVG_VALIDATION_ACCURACIES[
                             current_epoch %
                             AVG_VALIDATION_ACCURACY_EPOCHS] = current_validation_accuracy
+
                         current_epoch += 1
+                        sum_validation_accuracy = 0
 
                     if step % SAVE_MODEL_STEP == 0 or (
                             step + 1

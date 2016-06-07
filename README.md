@@ -2,15 +2,15 @@
 
 ## Dataset 
 
-pgnet uses the PASCAL VOC 2012 train & test set.
+pgnet uses the PASCAL VOC 2012 train & test set, for train and test respectively.
 
 `build_trainval.py` generates a new dataset of cropped detected images and a csv file `ts.csv`.
 
 The cropper can handle every dataset that follows the PASCAL VOC 2012 structure.
 
-The script outputs the average size of the cropped images. For the PASCAL VOC 2012 dataset the average size is: 168x184.
+The script outputs the average size of the cropped images.
 
-Here's some code:
+Here's some code to get the datasets and to build the cropped dataset.
 
 ```
 mkdir -p ~/data/PASCAL_2012/test
@@ -27,9 +27,6 @@ python build_trainval.py ~/data/PASCAL_2012/VOCdevkit/VOC2012 ~/data/PASCAL_2012
 cd ~/data/PASCAL_2012/test
 mv ../VOC2012test.tar .
 tar xf VOC2012test.tar
-cd -
-# TODO: handle the different structure of the testdataset
-# python pascal_cropper.py ~/data/PASCAL_2012/test/VOCdevkit/VOC2012 ~/data/PASCAL_2012_cropped/test/ 
 ```
 
 ## Network structure
