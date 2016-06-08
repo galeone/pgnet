@@ -32,7 +32,7 @@ DISPLAY_STEP = 10
 MEASUREMENT_STEP = 20
 MIN_VALIDATION_ACCURACY = 0.95
 STEP_FOR_EPOCH = math.ceil(pascal_input.NUM_EXAMPLES_PER_EPOCH_FOR_TRAIN /
-                            pgnet.BATCH_SIZE)
+                           pgnet.BATCH_SIZE)
 MAX_ITERATIONS = STEP_FOR_EPOCH * 500
 
 # stop when
@@ -310,7 +310,7 @@ def train(args):
 
                     if step % STEP_FOR_EPOCH == 0 and step > 0:
                         # current validation accuracy
-                        current_validation_accuracy = sum_validation_accuracy / STEP_FOR_EPOCH
+                        current_validation_accuracy = sum_validation_accuracy * MEASUREMENT_STEP / STEP_FOR_EPOCH
                         print(
                             "Epoch {} finised. Average validation accuracy/epoch: {}".format(
                                 current_epoch, current_validation_accuracy))
