@@ -1,3 +1,10 @@
+#Copyright (C) 2016 Paolo Galeone <nessuno@nerdz.eu>
+#
+#This Source Code Form is subject to the terms of the Mozilla Public
+#License, v. 2.0. If a copy of the MPL was not distributed with this
+#file, you can obtain one at http://mozilla.org/MPL/2.0/.
+#Exhibit B is not attached; this software is compatible with the
+#licenses expressed under Section 1.12 of the MPL v2.
 """./pascal_test.py PASCAL_2012_test_dataset/VOCdevkit/VOC2012
 
 Reads the file list in: argv[1]/ImageSets/Main/test.txt
@@ -63,17 +70,17 @@ def main(args):
 
         # get the input queue of resized (or cropped) test images
         # use 29 as batch_size because is a divisor of the test dataset size
-        test_center_cropped_queue, test_center_cropped_filename_queue = pascal_input.test(
-            args.test_ds,
-            29,
-            args.test_ds + "/ImageSets/Main/test.txt",
-            method="central-crop")
+        #test_center_cropped_queue, test_center_cropped_filename_queue = pascal_input.test(
+        #    args.test_ds,
+        #    29,
+        #    args.test_ds + "/ImageSets/Main/test.txt",
+        #    method="central-crop")
 
-        test_nn_queue, test_nn_filename_queue = pascal_input.test(
+        test_resize_queue, test_resize_filename_queue = pascal_input.test(
             args.test_ds,
             29,
             args.test_ds + "/ImageSets/Main/test.txt",
-            method="resize-nn")
+            method="resize")
 
         init_op = tf.initialize_all_variables()
 
@@ -91,36 +98,40 @@ def main(args):
                 processed = 0
                 while not coord.should_stop():
                     # extract batches from queues
-                    image_batch_cropped, filename_batch_cropped = sess.run(
-                        [test_center_cropped_queue,
-                         test_center_cropped_filename_queue])
-                    image_batch_nn, filename_batch_nn = sess.run(
-                        [test_nn_queue, test_nn_filename_queue])
+                    #image_batch_cropped, filename_batch_cropped = sess.run(
+                    #    [test_center_cropped_queue,
+                    #     test_center_cropped_filename_queue])
 
                     # run predction on images central cropped (or padded)
-                    batch_predictions_cropped = sess.run(
-                        softmax,
-                        feed_dict={
-                            "keep_prob_:0": 1.0,
-                            "images_:0": image_batch_cropped,
-                        })
-                    # run prediction on images resized with nn
-                    batch_predictions_nn = sess.run(softmax,
+                    #batch_predictions_cropped = sess.run(
+                    #    softmax,
+                    #    feed_dict={
+                    #        "keep_prob_:0": 1.0,
+                    #        "images_:0": image_batch_cropped,
+                    #    })
+
+                    image_batch_resize, filename_batch_resize = sess.run(
+                        [test_resize_queue, test_resize_filename_queue])
+
+                    # run prediction on images resized
+                    batch_predictions_resize = sess.run(softmax,
                                                     feed_dict={
                                                         "keep_prob_:0": 1.0,
                                                         "images_:0":
-                                                        image_batch_nn,
+                                                        image_batch_resize,
                                                     })
 
                     for batch_elem_id, prediction_probs in enumerate(
-                            batch_predictions_cropped):
-                        decoded_filename = filename_batch_cropped[
+                            #batch_predictions_cropped):
+                            batch_predictions_resize):
+                        decoded_filename = filename_batch_resize[
                             batch_elem_id].decode("utf-8")
                         print(decoded_filename)
                         for idx, pred in enumerate(prediction_probs):
-                            avg_pred = (
-                                pred + batch_predictions_nn[batch_elem_id][idx]
-                            ) / 2
+                            #avg_pred = (
+                            #    pred + batch_predictions_resize[batch_elem_id][idx]
+                            #) / 2
+                            avg_pred = pred
                             files[build_trainval.CLASSES[idx]].write(
                                 "{} {}\n".format(decoded_filename, avg_pred))
 
