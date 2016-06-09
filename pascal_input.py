@@ -1,3 +1,12 @@
+#Copyright (C) 2016 Paolo Galeone <nessuno@nerdz.eu>
+#
+#This Source Code Form is subject to the terms of the Mozilla Public
+#License, v. 2.0. If a copy of the MPL was not distributed with this
+#file, you can obtain one at http://mozilla.org/MPL/2.0/.
+#Exhibit B is not attached; this software is compatible with the
+#licenses expressed under Section 1.12 of the MPL v2.
+"""Generate the input from the pascal dataset"""
+
 import os
 import tensorflow as tf
 import pgnet
@@ -27,8 +36,8 @@ def read_image(image_path):
         dtype=tf.float32)
 
 
-def resize_nn(image):
-    """Returns the image, resized with the nearest neighbor interpolation to:
+def resize_bl(image):
+    """Returns the image, resized with bilinear interpolation to:
     pgnet.INPUT_SIDE x pgnet.INPUT_SIDE.
     Input:
         image: 3d tensor widht shape [width, height, depth]
@@ -38,8 +47,8 @@ def resize_nn(image):
     image = tf.expand_dims(image, 0)
 
     # now image is 4-D float32 tensor: [1,pgnet.INPUT_SIDE,pgnet.INPUT_SIDE, DEPTH]
-    image = tf.image.resize_nearest_neighbor(image, [pgnet.INPUT_SIDE,
-                                                     pgnet.INPUT_SIDE])
+    image = tf.image.resize_bilinear(image, [pgnet.INPUT_SIDE,
+                                             pgnet.INPUT_SIDE])
     # remove the 1st dimension -> [pgnet.INPUT_SIDE, pgnet.INPUT_SIDE, DEPTH]
     image = tf.reshape(image, [pgnet.INPUT_SIDE, pgnet.INPUT_SIDE, DEPTH])
     return image
@@ -145,19 +154,28 @@ def train(cropped_dataset_path,
     image = read_image(image_path)
 
     def random_crop_it():
+        """Random crops image"""
         return tf.random_crop(
             image, [pgnet.INPUT_SIDE, pgnet.INPUT_SIDE, pgnet.INPUT_DEPTH])
 
     def resize_it():
-        return resize_nn(image)
+        """Resize the image using resize_bl"""
+        return resize_bl(image)
 
     input_side_const = tf.constant(pgnet.INPUT_SIDE, dtype=tf.int64)
 
-    # if image.width >= pgnet.side and image.height >= pgnet.input side: random crop it, else resize it
+    # if image.width >= pgnet.side and image.height >= pgnet.input side: random crop it with probability p
+    # else resize it
+
+    p_crop = tf.random_uniform(shape=[],
+                               minval=0.0,
+                               maxval=1.0,
+                               dtype=tf.float32)
     image = tf.cond(
         tf.logical_and(
-            tf.greater_equal(widht, input_side_const),
-            tf.greater_equal(height, input_side_const)), random_crop_it,
+            tf.less(p_crop, 0.5), tf.logical_and(
+                tf.greater_equal(widht, input_side_const),
+                tf.greater_equal(height, input_side_const))), random_crop_it,
         resize_it)
 
     # Apply random distortions to the image
@@ -166,6 +184,7 @@ def train(cropped_dataset_path,
     # randomize the order of the random distortions
     # thanks to: https://stackoverflow.com/questions/37299345/using-if-conditions-inside-a-tensorflow-graph
     def fn1():
+        """Applies random brightness and random contrast"""
         distorted_image = tf.image.random_brightness(flipped_image,
                                                      max_delta=0.4)
         distorted_image = tf.image.random_contrast(distorted_image,
@@ -174,6 +193,7 @@ def train(cropped_dataset_path,
         return distorted_image
 
     def fn2():
+        """Applies random constrast and random brightness"""
         distorted_image = tf.image.random_contrast(flipped_image,
                                                    lower=0.2,
                                                    upper=1.2)
@@ -233,7 +253,7 @@ def validation(cropped_dataset_path,
     image = read_image(image_path)
 
     # resize image
-    image = resize_nn(image)
+    image = resize_bl(image)
 
     # Subtract off the mean and divide by the variance of the pixels.
     image = tf.image.per_image_whitening(image)
@@ -298,7 +318,7 @@ def test(test_dataset_path,
         image = riwcop.resize_image_with_crop_or_pad(image, pgnet.INPUT_SIDE,
                                                      pgnet.INPUT_SIDE)
     else:
-        image = resize_nn(image)
+        image = resize_bl(image)
 
     # Subtract off the mean and divide by the variance of the pixels.
     image = tf.image.per_image_whitening(image)
