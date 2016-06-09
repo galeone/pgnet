@@ -311,7 +311,7 @@ def test(test_dataset_path,
     image_path = test_dataset_path + tf.constant(
         "/JPEGImages/") + filename + tf.constant(".jpg")
 
-    assert method == "central-crop" or method == "resize-nn"
+    assert method == "central-crop" or method == "resize"
 
     image = read_image(image_path)
     if method == "central-crop":
