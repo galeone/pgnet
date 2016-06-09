@@ -30,13 +30,14 @@ CSV_PATH = "~/data/PASCAL_2012_cropped"
 # train & validation parameters
 DISPLAY_STEP = 10
 MEASUREMENT_STEP = 20
-MIN_VALIDATION_ACCURACY = 0.95
+# early stop criterion
+MIN_VALIDATION_ACCURACY = 0.9
 STEP_FOR_EPOCH = math.ceil(pascal_input.NUM_EXAMPLES_PER_EPOCH_FOR_TRAIN /
                            pgnet.BATCH_SIZE)
 MAX_ITERATIONS = STEP_FOR_EPOCH * 500
 
 # stop when
-AVG_VALIDATION_ACCURACY_EPOCHS = 10
+AVG_VALIDATION_ACCURACY_EPOCHS = 15
 # list of average validation at the end of every epoch
 AVG_VALIDATION_ACCURACIES = [0.0
                              for _ in range(AVG_VALIDATION_ACCURACY_EPOCHS)]
@@ -221,7 +222,8 @@ def train(args):
                 sess.run(init_op)
 
                 # Start the queue runners (input threads)
-                tf.train.start_queue_runners(sess=sess)
+                coord = tf.train.Coordinator()
+                threads = tf.train.start_queue_runners(sess=sess, coord=coord)
 
                 # restore previous session if exists
                 checkpoint = tf.train.get_checkpoint_state(SESSION_DIR)
@@ -352,6 +354,11 @@ def train(args):
 
                 # save train summaries to disk
                 summary_writer.flush()
+
+                # When done, ask the threads to stop.
+                coord.request_stop()
+                # Wait for threads to finish.
+                coord.join(threads)
 
         # if here, the summary dir contains the trained model
         export_model()
