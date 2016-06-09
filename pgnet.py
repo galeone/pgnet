@@ -1,5 +1,10 @@
-import tensorflow as tf
-import utils
+#Copyright (C) 2016 Paolo Galeone <nessuno@nerdz.eu>
+#
+#This Source Code Form is subject to the terms of the Mozilla Public
+#License, v. 2.0. If a copy of the MPL was not distributed with this
+#file, you can obtain one at http://mozilla.org/MPL/2.0/.
+#Exhibit B is not attached; this software is compatible with the
+#licenses expressed under Section 1.12 of the MPL v2.
 """
 The model is fully convolutional, thus it accepts batch of images of any size and produces
 a spatial map of vector.
@@ -10,6 +15,9 @@ Conventions:
     var_: placeholder
 """
 
+import tensorflow as tf
+import utils
+
 # dataset constants
 INPUT_SIDE = 184
 INPUT_DEPTH = 3
@@ -17,7 +25,7 @@ NUM_CLASS = 20
 
 # train constants
 BATCH_SIZE = 32
-LEARNING_RATE = 1e-3  # Initial learning rate.
+LEARNING_RATE = 1e-2  # Initial learning rate.
 
 # number of neurons in the last "fully connected" (1x1 conv) layer
 NUM_NEURONS = 1024
@@ -139,14 +147,14 @@ def get(image_, keep_prob_=1.0):
     print(pool1)
 
     # normalization is useless
-    """
-    CS231n: http://cs231n.github.io/convolutional-networks/
-    Many types of normalization layers have been proposed for use in ConvNet architectures, sometimes
-    with the intentions of implementing inhibition schemes observed in the biological brain.
-    However, these layers have recently fallen out of favor because in practice their contribution has
-    been shown to be minimal, if any.
-    For various types of normalizations, see the discussion in Alex Krizhevsky's cuda-convnet library API.
-    """
+    #
+    #CS231n: http://cs231n.github.io/convolutional-networks/
+    #Many types of normalization layers have been proposed for use in ConvNet architectures, sometimes
+    #with the intentions of implementing inhibition schemes observed in the biological brain.
+    #However, these layers have recently fallen out of favor because in practice their contribution has
+    #been shown to be minimal, if any.
+    #For various types of normalizations, see the discussion in Alex Krizhevsky's cuda-convnet library API.
+    #
 
     # repeat the l1, using pool1 as input. Do not incrase the number of learned filter
     # Preserve input depth
