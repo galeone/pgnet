@@ -30,8 +30,6 @@ CSV_PATH = "~/data/PASCAL_2012_cropped"
 # train & validation parameters
 DISPLAY_STEP = 10
 MEASUREMENT_STEP = 20
-# early stop criterion
-MIN_VALIDATION_ACCURACY = 0.9
 STEP_FOR_EPOCH = math.ceil(pascal_input.NUM_EXAMPLES_PER_EPOCH_FOR_TRAIN /
                            pgnet.BATCH_SIZE)
 MAX_ITERATIONS = STEP_FOR_EPOCH * 500
@@ -279,16 +277,12 @@ def train(args):
                                 datetime.now(), step, loss_val,
                                 examples_per_sec, sec_per_batch))
 
-                    validation_accuracy_reached = False
+                    stop_training = False
                     if step % MEASUREMENT_STEP == 0 and step > 0:
                         validation_accuracy, summary_line = validate()
                         # save summary for validation_accuracy
                         summary_writer.add_summary(summary_line,
                                                    global_step=step)
-
-                        if validation_accuracy > MIN_VALIDATION_ACCURACY:
-                            # check if the min_validation_accuracy has been reached
-                            validation_accuracy_reached = True
 
                         # test accuracy
                         test_accuracy, summary_line = sess.run(
@@ -326,8 +320,8 @@ def train(args):
                             print(
                                 "Average validation accuracy not increased after {} epochs. Exit".format(
                                     AVG_VALIDATION_ACCURACY_EPOCHS))
-                            # exit using validation_accuracy_reached flag, in order to save current status
-                            validation_accuracy_reached = True
+                            # exit using stop_training flag, in order to save current status
+                            stop_training = True
 
                         # save avg validation accuracy in the next slot
                         AVG_VALIDATION_ACCURACIES[
@@ -338,14 +332,13 @@ def train(args):
                         sum_validation_accuracy = 0
 
                     if step % SAVE_MODEL_STEP == 0 or (
-                            step + 1
-                    ) == MAX_ITERATIONS or validation_accuracy_reached:
+                            step + 1) == MAX_ITERATIONS or stop_training:
                         # save the current session (until this step) in the session dir
                         # export a checkpint in the format SESSION_DIR/model-<global_step>.meta
                         # always pass 0 to global step in order to have only one file in the folder
                         saver.save(sess, SESSION_DIR + "/model", global_step=0)
 
-                    if validation_accuracy_reached:
+                    if stop_training:
                         break
 
                 # end of train
