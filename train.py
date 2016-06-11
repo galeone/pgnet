@@ -243,8 +243,8 @@ def train(args):
 
                     start = time.time()
                     # train, get loss value, get summaries
-                    _, loss_val, summary_line = sess.run(
-                        [train_op, loss_op, summary_op],
+                    _, loss_val, summary_line, gs_value = sess.run(
+                        [train_op, loss_op, summary_op, global_step],
                         feed_dict={
                             keep_prob_: 0.5,
                             images_: train_images,
@@ -253,7 +253,8 @@ def train(args):
                     duration = time.time() - start
 
                     # save summary for current step
-                    summary_writer.add_summary(summary_line, global_step=step)
+                    summary_writer.add_summary(summary_line,
+                                               global_step=gs_value)
 
                     if np.isnan(loss_val):
                         print('Model diverged with loss = NaN',
@@ -274,7 +275,7 @@ def train(args):
                         sec_per_batch = float(duration)
                         print(
                             "{} step: {} loss: {} ({} examples/sec; {} batch/sec)".format(
-                                datetime.now(), step, loss_val,
+                                datetime.now(), gs_value, loss_val,
                                 examples_per_sec, sec_per_batch))
 
                     stop_training = False
@@ -282,7 +283,7 @@ def train(args):
                         validation_accuracy, summary_line = validate()
                         # save summary for validation_accuracy
                         summary_writer.add_summary(summary_line,
-                                                   global_step=step)
+                                                   global_step=gs_value)
 
                         # test accuracy
                         test_accuracy, summary_line = sess.run(
@@ -295,12 +296,12 @@ def train(args):
                             })
                         # save summary for training accuracy
                         summary_writer.add_summary(summary_line,
-                                                   global_step=step)
+                                                   global_step=gs_value)
 
                         print(
                             "{} step: {} validation accuracy: {} training accuracy: {}".format(
-                                datetime.now(
-                                ), step, validation_accuracy, test_accuracy))
+                                datetime.now(), gs_value, validation_accuracy,
+                                test_accuracy))
 
                         sum_validation_accuracy += validation_accuracy
 
