@@ -254,3 +254,20 @@ def train(loss_op, global_step):
         minimizer = optimizer.minimize(loss_op, global_step=global_step)
 
     return minimizer
+
+
+def resize_bl(image):
+    """Returns the image, resized with bilinear interpolation to:
+    INPUT_SIDE x INPUT_SIDE.
+    Input:
+        image: 3d tensor widht shape [width, height, depth]
+    """
+
+    #reshape to a 4-d tensor (required to resize)
+    image = tf.expand_dims(image, 0)
+
+    # now image is 4-D float32 tensor: [1, INPUT_SIDE, INPUT_SIDE, INPUT_DEPTH]
+    image = tf.image.resize_bilinear(image, [INPUT_SIDE, INPUT_SIDE])
+    # remove the 1st dimension -> [INPUT_SIDE, INPUT_SIDE, INPUT_DEPTH]
+    image = tf.reshape(image, [INPUT_SIDE, INPUT_SIDE, INPUT_DEPTH])
+    return image

@@ -27,31 +27,13 @@ def read_image(image_path):
     """Reads the image from image_path (tf.string tensor) [jpg image].
     Cast the result to float32.
     Reuturn:
-        the decoded jpege image, casted to float32
+        the decoded jpeg image, casted to float32
     """
     return tf.image.convert_image_dtype(
         tf.image.decode_jpeg(
             tf.read_file(image_path),
             channels=pgnet.INPUT_DEPTH),
         dtype=tf.float32)
-
-
-def resize_bl(image):
-    """Returns the image, resized with bilinear interpolation to:
-    pgnet.INPUT_SIDE x pgnet.INPUT_SIDE.
-    Input:
-        image: 3d tensor widht shape [width, height, depth]
-    """
-
-    #reshape to a 4-d tensor (required to resize)
-    image = tf.expand_dims(image, 0)
-
-    # now image is 4-D float32 tensor: [1,pgnet.INPUT_SIDE,pgnet.INPUT_SIDE, DEPTH]
-    image = tf.image.resize_bilinear(image, [pgnet.INPUT_SIDE,
-                                             pgnet.INPUT_SIDE])
-    # remove the 1st dimension -> [pgnet.INPUT_SIDE, pgnet.INPUT_SIDE, DEPTH]
-    image = tf.reshape(image, [pgnet.INPUT_SIDE, pgnet.INPUT_SIDE, DEPTH])
-    return image
 
 
 def read_cropped_pascal(cropped_dataset_path, queue):
@@ -159,8 +141,8 @@ def train(cropped_dataset_path,
             image, [pgnet.INPUT_SIDE, pgnet.INPUT_SIDE, pgnet.INPUT_DEPTH])
 
     def resize_it():
-        """Resize the image using resize_bl"""
-        return resize_bl(image)
+        """Resize the image using pgnet.resize_bl"""
+        return pgnet.resize_bl(image)
 
     input_side_const = tf.constant(pgnet.INPUT_SIDE, dtype=tf.int64)
 
@@ -253,7 +235,7 @@ def validation(cropped_dataset_path,
     image = read_image(image_path)
 
     # resize image
-    image = resize_bl(image)
+    image = pgnet.resize_bl(image)
 
     # Subtract off the mean and divide by the variance of the pixels.
     image = tf.image.per_image_whitening(image)
@@ -318,7 +300,7 @@ def test(test_dataset_path,
         image = riwcop.resize_image_with_crop_or_pad(image, pgnet.INPUT_SIDE,
                                                      pgnet.INPUT_SIDE)
     else:
-        image = resize_bl(image)
+        image = pgnet.resize_bl(image)
 
     # Subtract off the mean and divide by the variance of the pixels.
     image = tf.image.per_image_whitening(image)
