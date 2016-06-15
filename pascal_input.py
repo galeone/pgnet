@@ -10,10 +10,7 @@
 import os
 import tensorflow as tf
 import pgnet
-import resize_image_with_crop_or_pad_pipeline as riwcop
-
-# The depth of the example
-DEPTH = 3
+import image_processing
 
 # Global constants describing the cropped pascal data set.
 NUM_CLASSES = 20
@@ -21,19 +18,6 @@ NUM_EXAMPLES_PER_EPOCH_FOR_EVAL = 293
 NUM_EXAMPLES_PER_EPOCH_FOR_TRAIN = 27157
 
 # sum = 27450 = PASCAL trainval size
-
-
-def read_image(image_path):
-    """Reads the image from image_path (tf.string tensor) [jpg image].
-    Cast the result to float32.
-    Reuturn:
-        the decoded jpeg image, casted to float32
-    """
-    return tf.image.convert_image_dtype(
-        tf.image.decode_jpeg(
-            tf.read_file(image_path),
-            channels=pgnet.INPUT_DEPTH),
-        dtype=tf.float32)
 
 
 def read_cropped_pascal(cropped_dataset_path, queue):
@@ -133,74 +117,21 @@ def train(cropped_dataset_path,
         tf.constant(cropped_dataset_path), queue)
 
     # read the image and cast it to float32
-    image = read_image(image_path)
-
-    def random_crop_it():
-        """Random crops image"""
-        return tf.random_crop(
-            image, [pgnet.INPUT_SIDE, pgnet.INPUT_SIDE, pgnet.INPUT_DEPTH])
-
-    def resize_it():
-        """Resize the image using pgnet.resize_bl"""
-        return pgnet.resize_bl(image)
-
-    input_side_const = tf.constant(pgnet.INPUT_SIDE, dtype=tf.int64)
-
-    # if image.width >= pgnet.side and image.height >= pgnet.input side: random crop it with probability p
-    # else resize it
-
-    p_crop = tf.random_uniform(shape=[],
-                               minval=0.0,
-                               maxval=1.0,
-                               dtype=tf.float32)
-    image = tf.cond(
-        tf.logical_and(
-            tf.less(p_crop, 0.5), tf.logical_and(
-                tf.greater_equal(widht, input_side_const),
-                tf.greater_equal(height, input_side_const))), random_crop_it,
-        resize_it)
-
-    # Apply random distortions to the image
-    flipped_image = tf.image.random_flip_left_right(image)
-
-    # randomize the order of the random distortions
-    # thanks to: https://stackoverflow.com/questions/37299345/using-if-conditions-inside-a-tensorflow-graph
-    def fn1():
-        """Applies random brightness and random contrast"""
-        distorted_image = tf.image.random_brightness(flipped_image,
-                                                     max_delta=0.4)
-        distorted_image = tf.image.random_contrast(distorted_image,
-                                                   lower=0.2,
-                                                   upper=1.2)
-        return distorted_image
-
-    def fn2():
-        """Applies random constrast and random brightness"""
-        distorted_image = tf.image.random_contrast(flipped_image,
-                                                   lower=0.2,
-                                                   upper=1.2)
-        distorted_image = tf.image.random_brightness(distorted_image,
-                                                     max_delta=0.4)
-        return distorted_image
-
-    p_order = tf.random_uniform(shape=[],
-                                minval=0.0,
-                                maxval=1.0,
-                                dtype=tf.float32)
-    distorted_image = tf.cond(tf.less(p_order, 0.5), fn1, fn2)
-
-    # Subtract off the mean and divide by the variance of the pixels.
-    image = tf.image.per_image_whitening(distorted_image)
+    image = image_processing.read_image_jpg(image_path)
+    # apply random distortions and resize image to:
+    # pgnet.INPUT_SIDE x pgnet.INPUT_SIDE x pgnet.INPUT_DEPTH
+    distorted_image = image_processing.distort_image(
+        image, widht, height, pgnet.INPUT_SIDE, pgnet.INPUT_DEPTH)
 
     # Ensure that the random shuffling has good mixing properties.
-    min_fraction_of_examples_in_queue = 0.8
+    fraction_of_examples_in_queue = 0.8
     min_queue_examples = int(NUM_EXAMPLES_PER_EPOCH_FOR_TRAIN *
-                             min_fraction_of_examples_in_queue)
+                             fraction_of_examples_in_queue)
 
     print(
         'Filling queue with {} pascal cropped images before starting to train. '
-        'This will take a few minutes.'.format(min_queue_examples))
-    return _generate_image_and_label_batch(image,
+        'This will take a few....'.format(min_queue_examples))
+    return _generate_image_and_label_batch(distorted_image,
                                            label,
                                            min_queue_examples,
                                            batch_size,
@@ -232,18 +163,15 @@ def validation(cropped_dataset_path,
         tf.constant(cropped_dataset_path), queue)
 
     # read image
-    image = read_image(image_path)
+    image = image_processing.read_image_jpg(image_path)
 
     # resize image
-    image = pgnet.resize_bl(image)
-
-    # Subtract off the mean and divide by the variance of the pixels.
-    image = tf.image.per_image_whitening(image)
+    image = image_processing.resize_bl(image, pgnet.INPUT_SIDE)
 
     # Ensure that the random shuffling has good mixing properties.
-    min_fraction_of_examples_in_queue = 0.8
+    fraction_of_examples_in_queue = 0.8
     min_queue_examples = int(NUM_EXAMPLES_PER_EPOCH_FOR_EVAL *
-                             min_fraction_of_examples_in_queue)
+                             fraction_of_examples_in_queue)
 
     # min_after_dequeue defines how big a buffer we will randomly sample
     #   from -- bigger means better shuffling but slower start up and more
@@ -261,8 +189,7 @@ def validation(cropped_dataset_path,
 
 def test(test_dataset_path,
          batch_size,
-         file_list_path=os.path.abspath(os.getcwd()),
-         method="central-crop"):
+         file_list_path=os.path.abspath(os.getcwd())):
     """Returns a batch of images from the test dataset.
 
     Args:
@@ -293,17 +220,8 @@ def test(test_dataset_path,
     image_path = test_dataset_path + tf.constant(
         "/JPEGImages/") + filename + tf.constant(".jpg")
 
-    assert method == "central-crop" or method == "resize"
-
-    image = read_image(image_path)
-    if method == "central-crop":
-        image = riwcop.resize_image_with_crop_or_pad(image, pgnet.INPUT_SIDE,
-                                                     pgnet.INPUT_SIDE)
-    else:
-        image = pgnet.resize_bl(image)
-
-    # Subtract off the mean and divide by the variance of the pixels.
-    image = tf.image.per_image_whitening(image)
+    image = image_processing.read_image_jpg(image_path)
+    image = image_processing.resize_bl(image, pgnet.INPUT_SIDE)
 
     # create a batch of images & filenames
     # (using a queue runner, that extracts image from the queue)

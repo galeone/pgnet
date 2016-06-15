@@ -9,28 +9,16 @@
 
 import os
 import tensorflow as tf
+import image_processing
 import pgnet
-import resize_image_with_crop_or_pad_pipeline as riwcop
 
 # The depth of the example
-DEPTH = 3
+INPUT_DEPTH = 3
+INPUT_SIDE = 32
 
 # Global constants describing the PASCIFAR data set.
 NUM_CLASSES = 17
 NUM_EXAMPLES = 42000
-
-
-def read_image(image_path):
-    """Reads the image from image_path (tf.string tensor) [png image].
-    Cast the result to float32.
-    Reuturn:
-        the decoded png image, casted to float32
-    """
-    return tf.image.convert_image_dtype(
-        tf.image.decode_png(
-            tf.read_file(image_path),
-            channels=pgnet.INPUT_DEPTH),
-        dtype=tf.float32)
 
 
 def read_pascifar(pascifar_path, queue):
@@ -86,14 +74,8 @@ def test(pascifar_path, batch_size, csv_path=os.path.abspath(os.getcwd())):
     image_path, label = read_pascifar(pascifar_path, queue)
 
     # read image
-    image = read_image(image_path)
-
-    image = riwcop.resize_image_with_crop_or_pad(image, pgnet.INPUT_SIDE,
-                                                 pgnet.INPUT_SIDE)
-    #image = pgnet.resize_bl(image)
-
-    # Subtract off the mean and divide by the variance of the pixels.
-    image = tf.image.per_image_whitening(image)
+    image = image_processing.read_image_png(image_path)
+    image = image_processing.resize_bl(image, pgnet.INPUT_SIDE)
 
     # create a batch of images & filenames
     # (using a queue runner, that extracts image from the queue)

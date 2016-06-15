@@ -11,7 +11,6 @@ import argparse
 import os
 import sys
 import tensorflow as tf
-import pgnet
 import train
 
 
@@ -52,9 +51,6 @@ def main(args):
             image_path = tf.constant(args.image_path)
             # read the image
             image = tf.image.decode_jpeg(tf.read_file(image_path))
-
-            # subtract off the mean and divide by the variance of the pixels
-            image = tf.image.per_image_whitening(image)
 
             # pgnet accepts a batch of images as input, add the "batch" dimension.
             image = tf.expand_dims(image, 0)

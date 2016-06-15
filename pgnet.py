@@ -18,30 +18,31 @@ Conventions:
 import tensorflow as tf
 import utils
 
-# dataset constants
+# network input constants
 INPUT_SIDE = 184
 INPUT_DEPTH = 3
-NUM_CLASS = 20
 
 # train constants
 BATCH_SIZE = 32
 LEARNING_RATE = 1e-2  # Initial learning rate.
 
 # number of neurons in the last "fully connected" (1x1 conv) layer
-NUM_NEURONS = 1024
+NUM_NEURONS = 2048
 
 
-def conv_layer(input_x, kernel_shape, padding):
+def conv_layer(input_x, kernel_shape, padding, is_training=False):
     """
     Returns the result of:
     ReLU(conv2d(x, kernels, padding=padding) + bias).
     Creates kernels (name=kernel), bias (name=bias) and relates summaries.
-    
+
     Args:
         x: 4-D input tensor. shape = [batch, height, width, depth]
-        kernel_shape: the shape of W, used in convolution as kernels. [kernel_height, kernel_width, kernel_depth, num_kernels]
+        kernel_shape: the shape of W, used in convolution as kernels:
+                [kernel_height, kernel_width, kernel_depth, num_kernels]
         name: the op name
         padding; "VALID" | "SAME"
+        is_training: True of is training
     """
 
     num_kernels = kernel_shape[3]
@@ -49,17 +50,20 @@ def conv_layer(input_x, kernel_shape, padding):
     kernels = utils.kernels(kernel_shape, "kernels")
     bias = utils.bias([num_kernels], "bias")
 
-    return tf.nn.relu(
+    relu_out = tf.nn.relu(
         tf.add(
             tf.nn.conv2d(input_x,
                          kernels,
                          strides=[1, 1, 1, 1],
                          padding=padding),
             bias),
-        name="out")
+        name="relu_out")
+
+    # https://github.com/ducha-aiki/caffenet-benchmark/blob/master/batchnorm.md
+    return tf.contrib.layers.batch_norm(relu_out, is_training=is_training)
 
 
-def eq_conv_layer(input_x, kernel_side, num_kernels):
+def eq_conv_layer(input_x, kernel_side, num_kernels, is_training=False):
     """Pads the input with the right amount of zeros.
     Convolve the padded input. In that way every pixel of the input image
     will contribute on average.
@@ -76,10 +80,10 @@ def eq_conv_layer(input_x, kernel_side, num_kernels):
                                         [pad_amount, pad_amount], [0, 0]],
                               name="input_padded")
         print(input_padded)
-        return conv_layer(input_padded, kernel_shape, padding="VALID")
+        return conv_layer(input_padded, kernel_shape, "VALID", is_training)
 
 
-def block(input_x, kernel_side, num_kernels, exp):
+def block(input_x, kernel_side, num_kernels, exp, is_training=False):
     """ block returns the result of 4 convolution, using the eq_conv_layer.
     The first thw layers have num_kernels kernels, the last two num_kernels*exp
 
@@ -93,28 +97,30 @@ def block(input_x, kernel_side, num_kernels, exp):
                 layer3, layer4: num_lernels *= exp
             num_kernels should be a power of exp, if you want exponential progression.
         exp: see num_kernels
+        is_training: set it to True when training
     """
     with tf.variable_scope("conv1"):
-        conv1 = eq_conv_layer(input_x, kernel_side, num_kernels)
+        conv1 = eq_conv_layer(input_x, kernel_side, num_kernels, is_training)
 
     with tf.variable_scope("conv2"):
-        conv2 = eq_conv_layer(conv1, kernel_side, num_kernels)
+        conv2 = eq_conv_layer(conv1, kernel_side, num_kernels, is_training)
 
     num_kernels *= exp
     with tf.variable_scope("conv3"):
-        conv3 = eq_conv_layer(conv2, kernel_side, num_kernels)
+        conv3 = eq_conv_layer(conv2, kernel_side, num_kernels, is_training)
 
     with tf.variable_scope("conv4"):
-        conv4 = eq_conv_layer(conv3, kernel_side, num_kernels)
+        conv4 = eq_conv_layer(conv3, kernel_side, num_kernels, is_training)
 
     return conv4
 
 
-def get(image_, keep_prob_=1.0):
+def get(image_, num_classes, keep_prob_=1.0):
     """
     @input:
         image_ is a tensor with shape [-1, widht, height, depth]
-        keep_prob_: dropput probability. Set it to something < 1.0 during train
+        num_classes: number of classes
+        keep_prob_: dropput probability. Set it to something < 1.0 during train.
 
     As the net goes deeper, increase the number of filters (using power of 2
     in order to optimize GPU performance).
@@ -125,6 +131,7 @@ def get(image_, keep_prob_=1.0):
     @returns:
         softmax_linear: spatial map of output vectors (unscaled)
     """
+    is_training = keep_prob_ < 1.0
     print(image_)
 
     kernel_side = 3
@@ -148,13 +155,13 @@ def get(image_, keep_prob_=1.0):
 
     # normalization is useless
     #
-    #CS231n: http://cs231n.github.io/convolutional-networks/
-    #Many types of normalization layers have been proposed for use in ConvNet architectures, sometimes
-    #with the intentions of implementing inhibition schemes observed in the biological brain.
-    #However, these layers have recently fallen out of favor because in practice their contribution has
-    #been shown to be minimal, if any.
-    #For various types of normalizations, see the discussion in Alex Krizhevsky's cuda-convnet library API.
-    #
+    # CS231n: http://cs231n.github.io/convolutional-networks/
+    # Many types of normalization layers have been proposed for use in ConvNet architectures,
+    # sometimes with the intentions of implementing inhibition schemes observed in the biological
+    # brain.However, these layers have recently fallen out of favor because in practice their
+    # contribution has been shown to be minimal, if any.
+    # For various types of normalizations, see the discussion in Alex Krizhevsky's cuda-convnet
+    # library API.
 
     # repeat the l1, using pool1 as input. Do not incrase the number of learned filter
     # Preserve input depth
@@ -192,17 +199,17 @@ def get(image_, keep_prob_=1.0):
     # fully convolutional layer
     # take the 23x23x512 input and project it to a 1x1xNUM_NEURONS dim space
     with tf.variable_scope("fc1"):
-        fc1 = conv_layer(pool3, [23, 23, num_kernels, NUM_NEURONS],
-                         padding="VALID")
+        fc1 = conv_layer(pool3, [23, 23, num_kernels, NUM_NEURONS], "VALID",
+                         is_training)
         # output: 1x1xNUM_NEURONS
         dropout = tf.nn.dropout(fc1, keep_prob_, name="dropout")
         print(dropout)
         # output: 1x1xNUM_NEURONS
 
     with tf.variable_scope("softmax_linear"):
-        out = conv_layer(dropout, [1, 1, NUM_NEURONS, NUM_CLASS],
-                         padding="VALID")
-        # output: (BATCH_SIZE)1x1xNUM_CLASS if the input has been properly scaled
+        out = conv_layer(dropout, [1, 1, NUM_NEURONS, num_classes], "VALID",
+                         is_training)
+        # output: (BATCH_SIZE)1x1xnum_classes if the input has been properly scaled
         # otherwise is a map
         print(out)
 
@@ -220,9 +227,10 @@ def loss(logits, labels):
     """
 
     with tf.variable_scope("loss"):
-        # reshape logits to a vector of NUM_CLASS elements
+        # reshape logits to a vector of num_classes elements
         # -1 = every batch size
-        logits = tf.reshape(logits, [-1, NUM_CLASS])
+        num_classes = logits.get_shape()[-1].value
+        logits = tf.reshape(logits, [-1, num_classes])
 
         labels = tf.cast(labels, tf.int64)
 
@@ -254,20 +262,3 @@ def train(loss_op, global_step):
         minimizer = optimizer.minimize(loss_op, global_step=global_step)
 
     return minimizer
-
-
-def resize_bl(image):
-    """Returns the image, resized with bilinear interpolation to:
-    INPUT_SIDE x INPUT_SIDE.
-    Input:
-        image: 3d tensor widht shape [width, height, depth]
-    """
-
-    #reshape to a 4-d tensor (required to resize)
-    image = tf.expand_dims(image, 0)
-
-    # now image is 4-D float32 tensor: [1, INPUT_SIDE, INPUT_SIDE, INPUT_DEPTH]
-    image = tf.image.resize_bilinear(image, [INPUT_SIDE, INPUT_SIDE])
-    # remove the 1st dimension -> [INPUT_SIDE, INPUT_SIDE, INPUT_DEPTH]
-    image = tf.reshape(image, [INPUT_SIDE, INPUT_SIDE, INPUT_DEPTH])
-    return image

@@ -14,12 +14,11 @@ import argparse
 import os
 import sys
 import tensorflow as tf
-import pgnet
 import train
 import pascifar_input
-import build_trainval
+import pascal_input
 
-BATCH_SIZE = 2
+BATCH_SIZE = 200
 
 PASCAL2PASCIFAR = {  #pascal - #pascifar
     "airplane": "airplane",  #0 - #0
@@ -51,19 +50,32 @@ def pascal_id_2_pascifar_id(pascal_id):
     Returns -1 if pgnet predicted a class that's not in the PASCIFAR dataset.
     """
     # missing labels
-    if pascal_id == 9: return -1
-    if pascal_id == 15: return -2
-    if pascal_id == 16: return -3
+    if pascal_id == 9:
+        return -1
 
-    if pascal_id <= 8: return pascal_id
-    if pascal_id >= 10 and pascal_id <= 14: return pascal_id - 1
+    if pascal_id == 15:
+        return -2
+
+    if pascal_id == 16:
+        return -3
+
+    if pascal_id <= 8:
+        return pascal_id
+
+    if pascal_id >= 10 and pascal_id <= 14:
+        return pascal_id - 1
+
     return pascal_id - 3
 
 
 def pascifar_id_2_pascal_id(pascifar_id):
     """ converts pascifar ids to pascal ids"""
-    if pascifar_id <= 8: return pascifar_id
-    if pascifar_id >= 9 and pascifar_id <= 13: return pascifar_id + 1
+    if pascifar_id <= 8:
+        return pascifar_id
+
+    if pascifar_id >= 9 and pascifar_id <= 13:
+        return pascifar_id + 1
+
     return pascifar_id + 3
 
 
@@ -92,8 +104,10 @@ def main(args):
         # using softmax
         softmax_linear = graph.get_tensor_by_name("softmax_linear/out:0")
         # softmax_linear is the output of a 1x1xNUM_CLASS convolution
-        # to use the softmax we have to reshape it back to (?,NUM_CLASS)
-        softmax_linear = tf.reshape(softmax_linear, [-1, pgnet.NUM_CLASS])
+        # to use the softmax we have to reshape it back to (?, pascal_input.NUM_CLASSES)
+        # because pgnet has been trained on the PASCAL datset.
+        softmax_linear = tf.reshape(softmax_linear,
+                                    [-1, pascal_input.NUM_CLASSES])
         softmax = tf.nn.softmax(softmax_linear, name="softmax")
         #softmax = softmax_linear
 
@@ -130,31 +144,33 @@ def main(args):
                     image_batch, label_batch = sess.run(
                         [image_queue, label_queue])
 
-                    print(label_batch)
                     # label_batch are pascifar labels
                     # convert it to pascal labels in order to
                     # properly evaluate the accuracy of the model
                     converted_labels = [pascifar_id_2_pascal_id(label)
                                         for label in label_batch]
-                    print(converted_labels)
 
                     # run prediction on images resized
-                    pred, batch_accuracy = sess.run([softmax, accuracy],
-                                                    feed_dict={
-                                                        "keep_prob_:0": 1.0,
-                                                        "images_:0":
-                                                        image_batch,
-                                                        labels_:
-                                                        converted_labels,
-                                                    })
+                    predicted_labels, softmax_value, batch_accuracy = sess.run(
+                        [predictions, softmax, accuracy],
+                        feed_dict={
+                            "keep_prob_:0": 1.0,
+                            "images_:0":
+                            image_batch,
+                            labels_:
+                            converted_labels,
+                        })
+
+                    print(label_batch)
+                    print(converted_labels)
+                    print(predicted_labels)
                     print(batch_accuracy)
-                    print(pred)
                     sum_accuracy += batch_accuracy
                     processed += 1
 
             except tf.errors.OutOfRangeError:
                 print("[I] Done. Test completed!")
-                print("Processed {} images".format(processed))
+                print("Processed {} images".format(processed * BATCH_SIZE))
                 print("Avg accuracy: {}".format(sum_accuracy / processed))
                 print("Accuracy per class: ")
                 # TODO
