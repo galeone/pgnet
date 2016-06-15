@@ -44,10 +44,12 @@ AVG_VALIDATION_ACCURACIES = [0.0
 SAVE_MODEL_STEP = 500
 
 
-def define_model():
+def define_model(is_training):
     """ define the model with its inputs.
     Use this function to define the model in training and when exporting the model
     in the protobuf format. We're not interested in the oter variables.
+    Args:
+        is_training: set it to True when defining the model, during train
 
     Return:
         keep_prob_: model dropput placeholder
@@ -62,7 +64,10 @@ def define_model():
                              name="images_")
 
     # build a graph that computes the logits predictions from the images
-    logits = pgnet.get(images_, keep_prob_)
+    logits = pgnet.get(images_,
+                       pascal_input.NUM_CLASSES,
+                       keep_prob_,
+                       is_training=is_training)
     return keep_prob_, images_, logits
 
 
@@ -79,7 +84,7 @@ def export_model():
         graph = tf.Graph()
         with graph.as_default():
             # inject in the default graph the model structure
-            define_model()
+            define_model(is_training=False)
             # create a saver, to restore the graph in the session_dir
             saver = tf.train.Saver(tf.all_variables())
 
@@ -146,7 +151,7 @@ def train(args):
                                          shape=[None],
                                          name="labels_")
 
-                keep_prob_, images_, logits = define_model()
+                keep_prob_, images_, logits = define_model(is_training=True)
 
                 # loss op
                 loss_op = pgnet.loss(logits, labels_)
@@ -158,12 +163,13 @@ def train(args):
             summary_op = tf.merge_all_summaries()
 
             with tf.variable_scope("accuracy"):
-                # reshape logits to a [-1, NUM_CLASS] vector
+                # reshape logits to a [-1, pascal_input.NUM_CLASSES] vector
                 # (remeber that pgnet is fully convolutional)
-                reshaped_logits = tf.reshape(logits, [-1, pgnet.NUM_CLASS])
+                reshaped_logits = tf.reshape(logits,
+                                             [-1, pascal_input.NUM_CLASSES])
 
                 # returns the label predicted
-                # reshaped_logits contains NUM_CLASS values in NUM_CLASS
+                # reshaped_logits contains NUM_CLASSES values in NUM_CLASSES
                 # positions. Each value is the probability for the position class.
                 # Returns the index (thus the label) with highest probability, for each line
                 # [BATCH_SIZE] vector
@@ -316,7 +322,8 @@ def train(args):
                         history_avg_accuracy = sum(
                             AVG_VALIDATION_ACCURACIES) / AVG_VALIDATION_ACCURACY_EPOCHS
 
-                        # if avg accuracy is not increased, after AVG_VALIDATION_ACCURACY_NOT_INCREASED_AFTER_EPOCH, exit
+                        # if avg accuracy is not increased, after
+                        # AVG_VALIDATION_ACCURACY_NOT_INCREASED_AFTER_EPOCH, exit
                         if current_validation_accuracy <= history_avg_accuracy:
                             print(
                                 "Average validation accuracy not increased after {} epochs. Exit".format(
@@ -362,6 +369,6 @@ def train(args):
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Train the model")
-    parser.add_argument("--device", default="/gpu:1")
-    sys.exit(train(parser.parse_args()))
+    ARG_PARSER = argparse.ArgumentParser(description="Train the model")
+    ARG_PARSER.add_argument("--device", default="/gpu:1")
+    sys.exit(train(ARG_PARSER.parse_args()))

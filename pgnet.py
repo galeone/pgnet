@@ -27,7 +27,7 @@ BATCH_SIZE = 32
 LEARNING_RATE = 1e-2  # Initial learning rate.
 
 # number of neurons in the last "fully connected" (1x1 conv) layer
-NUM_NEURONS = 2048
+NUM_NEURONS = 1536
 
 
 def conv_layer(input_x, kernel_shape, padding, is_training=False):
@@ -115,12 +115,13 @@ def block(input_x, kernel_side, num_kernels, exp, is_training=False):
     return conv4
 
 
-def get(image_, num_classes, keep_prob_=1.0):
+def get(image_, num_classes, keep_prob_=1.0, is_training=False):
     """
     @input:
         image_ is a tensor with shape [-1, widht, height, depth]
         num_classes: number of classes
-        keep_prob_: dropput probability. Set it to something < 1.0 during train.
+        keep_prob_: dropput probability
+        is_training: set it to True when training.
 
     As the net goes deeper, increase the number of filters (using power of 2
     in order to optimize GPU performance).
@@ -131,7 +132,6 @@ def get(image_, num_classes, keep_prob_=1.0):
     @returns:
         softmax_linear: spatial map of output vectors (unscaled)
     """
-    is_training = keep_prob_ < 1.0
     print(image_)
 
     kernel_side = 3
