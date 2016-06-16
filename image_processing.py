@@ -82,12 +82,12 @@ def distort_image(image, input_width, input_height, output_side):
         distorted_image = tf.image.random_brightness(flipped_image,
                                                      max_delta=0.4)
         distorted_image = tf.image.random_saturation(distorted_image,
-                                                     lower=0.5,
-                                                     upper=1.5)
-        distorted_image = tf.image.random_hue(distorted_image, max_delta=0.2)
+                                                     lower=0.1,
+                                                     upper=0.8)
+        distorted_image = tf.image.random_hue(distorted_image, max_delta=0.1)
         distorted_image = tf.image.random_contrast(distorted_image,
-                                                   lower=0.2,
-                                                   upper=1.2)
+                                                   lower=0.1,
+                                                   upper=0.8)
         return distorted_image
 
     def fn2():
@@ -95,12 +95,12 @@ def distort_image(image, input_width, input_height, output_side):
         distorted_image = tf.image.random_brightness(flipped_image,
                                                      max_delta=0.4)
         distorted_image = tf.image.random_contrast(distorted_image,
-                                                   lower=0.2,
-                                                   upper=1.2)
+                                                   lower=0.1,
+                                                   upper=0.8)
         distorted_image = tf.image.random_saturation(distorted_image,
-                                                     lower=0.5,
-                                                     upper=1.5)
-        distorted_image = tf.image.random_hue(distorted_image, max_delta=0.2)
+                                                     lower=0.1,
+                                                     upper=0.8)
+        distorted_image = tf.image.random_hue(distorted_image, max_delta=0.1)
 
         return distorted_image
 
