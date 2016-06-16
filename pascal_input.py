@@ -117,11 +117,13 @@ def train(cropped_dataset_path,
         tf.constant(cropped_dataset_path), queue)
 
     # read the image and cast it to float32
-    image = image_processing.read_image_jpg(image_path)
     # apply random distortions and resize image to:
     # pgnet.INPUT_SIDE x pgnet.INPUT_SIDE x pgnet.INPUT_DEPTH
-    distorted_image = image_processing.distort_image(
-        image, widht, height, pgnet.INPUT_SIDE, pgnet.INPUT_DEPTH)
+    distorted_image = image_processing.train_image(image_path,
+                                                   widht,
+                                                   height,
+                                                   pgnet.INPUT_SIDE,
+                                                   image_type="jpg")
 
     # Ensure that the random shuffling has good mixing properties.
     fraction_of_examples_in_queue = 0.8
@@ -162,11 +164,10 @@ def validation(cropped_dataset_path,
     image_path, label, _, _ = read_cropped_pascal(
         tf.constant(cropped_dataset_path), queue)
 
-    # read image
-    image = image_processing.read_image_jpg(image_path)
-
-    # resize image
-    image = image_processing.resize_bl(image, pgnet.INPUT_SIDE)
+    # read and resize image
+    image = image_processing.eval_image(image_path,
+                                        pgnet.INPUT_SIDE,
+                                        image_type="jpg")
 
     # Ensure that the random shuffling has good mixing properties.
     fraction_of_examples_in_queue = 0.8

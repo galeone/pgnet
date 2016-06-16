@@ -74,8 +74,9 @@ def test(pascifar_path, batch_size, csv_path=os.path.abspath(os.getcwd())):
     image_path, label = read_pascifar(pascifar_path, queue)
 
     # read image
-    image = image_processing.read_image_png(image_path)
-    image = image_processing.resize_bl(image, pgnet.INPUT_SIDE)
+    image = image_processing.eval_image(image_path,
+                                        pgnet.INPUT_SIDE,
+                                        image_type="png")
 
     # create a batch of images & filenames
     # (using a queue runner, that extracts image from the queue)
