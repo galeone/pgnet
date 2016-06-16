@@ -57,7 +57,7 @@ def distort_image(image, input_width, input_height, output_side):
     def random_crop_it():
         """Random crops image, after resizing it to output_side +50 x output_side+50"""
         resized_img = resize_bl(image, output_side + 50)
-        return tf.random_crop(image, [output_side, output_side, 3])
+        return tf.random_crop(resized_img, [output_side, output_side, 3])
 
     def resize_it():
         """Resize the image using resize_bl"""
