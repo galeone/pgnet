@@ -55,18 +55,18 @@ def distort_image(image, input_width, input_height, output_side):
     """
 
     def random_crop_it():
-        """Random crops image, after resizing it to output_side +50 x output_side+50"""
-        resized_img = resize_bl(image, output_side + 50)
+        """Random crops image, after resizing it to output_side +10 x output_side+10"""
+        resized_img = resize_bl(image, output_side + 10)
         return tf.random_crop(resized_img, [output_side, output_side, 3])
 
     def resize_it():
         """Resize the image using resize_bl"""
         return resize_bl(image, output_side)
 
-    # if input.width >= output.side + 50 and input.heigth >= output.side + 50
-    #   resize it to output.side + 50 x output.size + 50 and random crop it
+    # if input.width >= output.side + 10 and input.heigth >= output.side + 10
+    #   resize it to output.side + 10 x output.size + 10 and random crop it
     # else resize it
-    increased_output_side = tf.constant(output_side + 50, dtype=tf.int64)
+    increased_output_side = tf.constant(output_side + 10, dtype=tf.int64)
     image = tf.cond(
         tf.logical_and(
             tf.greater_equal(input_width, increased_output_side),
@@ -113,6 +113,18 @@ def distort_image(image, input_width, input_height, output_side):
     return distorted_image
 
 
+def zm_mp(image):
+    """Keeps an image with values in [0, 1). Normalizes it in order to be
+    centered and have zero mean.
+    Normalizes its values in range [-1, 1]."""
+    image = tf.image.per_image_whitening(image)
+
+    # rescale to [-1,1] instead of [0, 1)
+    image = tf.sub(image, 0.5)
+    image = tf.mul(image, 2.0)
+    return image
+
+
 def train_image(image_path,
                 input_width,
                 input_height,
@@ -128,9 +140,7 @@ def train_image(image_path,
         image = read_image_png(image_path, 3)
 
     image = distort_image(image, input_width, input_height, output_side)
-    # rescale to [-1,1] instead of [0, 1)
-    image = tf.sub(image, 0.5)
-    image = tf.mul(image, 2.0)
+    image = zm_mp(image)
     return image
 
 
@@ -145,7 +155,5 @@ def eval_image(image_path, output_side, image_type="jpg"):
         image = read_image_png(image_path, 3)
 
     image = resize_bl(image, output_side)
-    # rescale to [-1,1] instead of [0, 1)
-    image = tf.sub(image, 0.5)
-    image = tf.mul(image, 2.0)
+    image = zm_mp(image)
     return image
