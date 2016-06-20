@@ -140,7 +140,11 @@ def get(image_, num_classes, keep_prob_=1.0, is_training=False):
     # of at least 184x184 (max value² of the average dimensions of the cropped pascal dataset)
     with tf.variable_scope("block1"):
         num_kernels = 2**5
-        block1 = block(image_, kernel_side, num_kernels, exp=2, is_training)
+        block1 = block(image_,
+                       kernel_side,
+                       num_kernels,
+                       exp=2,
+                       is_training=is_training)
         num_kernels *= 2
     #output: 184x184x64
     print(block1)
@@ -166,7 +170,11 @@ def get(image_, num_classes, keep_prob_=1.0, is_training=False):
     # repeat the l1, using pool1 as input. Do not incrase the number of learned filter
     # Preserve input depth
     with tf.variable_scope("block2"):
-        block2 = block(pool1, kernel_side, num_kernels, exp=2, is_training)
+        block2 = block(pool1,
+                       kernel_side,
+                       num_kernels,
+                       exp=2,
+                       is_training=is_training)
         num_kernels *= 2
         #output: 92x92x128
         print(block2)
@@ -182,7 +190,11 @@ def get(image_, num_classes, keep_prob_=1.0, is_training=False):
     print(pool2)
 
     with tf.variable_scope("block3"):
-        block3 = block(pool2, kernel_side, num_kernels, exp=2, is_training)
+        block3 = block(pool2,
+                       kernel_side,
+                       num_kernels,
+                       exp=2,
+                       is_training=is_training)
         num_kernels *= 2
         #output: 46x46x512
         print(block3)

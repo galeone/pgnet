@@ -65,7 +65,7 @@ def main(args):
         softmax_linear = graph.get_tensor_by_name("softmax_linear/out:0")
         # softmax_linear is the output of a 1x1xNUM_CLASS convolution
         # to use the softmax we have to reshape it back to (?,NUM_CLASS)
-        softmax_linear = tf.reshape(softmax_linear, [-1, pgnet.NUM_CLASS])
+        softmax_linear = tf.squeeze(softmax_linear, [1, 2])
         softmax = tf.nn.softmax(softmax_linear, name="softmax")
 
         # get the input queue of resized (or cropped) test images

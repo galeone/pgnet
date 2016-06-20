@@ -18,7 +18,7 @@ import train
 import pascifar_input
 import pascal_input
 
-BATCH_SIZE = 200
+BATCH_SIZE = 250
 
 PASCAL2PASCIFAR = {  #pascal - #pascifar
     "airplane": "airplane",  #0 - #0
@@ -102,12 +102,12 @@ def main(args):
 
         # exteact the pgnet output from the graph and scale the result
         # using softmax
-        softmax_linear = graph.get_tensor_by_name("softmax_linear/out:0")
+        softmax_linear = graph.get_tensor_by_name(
+            "softmax_linear/BatchNorm/batchnorm/add_1:0")
         # softmax_linear is the output of a 1x1xNUM_CLASS convolution
         # to use the softmax we have to reshape it back to (?, pascal_input.NUM_CLASSES)
         # because pgnet has been trained on the PASCAL datset.
-        softmax_linear = tf.reshape(softmax_linear,
-                                    [-1, pascal_input.NUM_CLASSES])
+        softmax_linear = tf.squeeze(softmax_linear, [1, 2])
         softmax = tf.nn.softmax(softmax_linear, name="softmax")
         #softmax = softmax_linear
 
@@ -126,7 +126,6 @@ def main(args):
 
         with tf.Session(config=tf.ConfigProto(
                 allow_soft_placement=True)) as sess:
-
             sess.run(init_op)
 
             # Start input enqueue threads.
@@ -151,8 +150,8 @@ def main(args):
                                         for label in label_batch]
 
                     # run prediction on images resized
-                    predicted_labels, softmax_value, batch_accuracy = sess.run(
-                        [predictions, softmax, accuracy],
+                    predicted_labels, sl, softmax_value, batch_accuracy = sess.run(
+                        [predictions, softmax_linear, softmax, accuracy],
                         feed_dict={
                             "keep_prob_:0": 1.0,
                             "images_:0":
@@ -164,6 +163,7 @@ def main(args):
                     print(label_batch)
                     print(converted_labels)
                     print(predicted_labels)
+                    print(softmax_value)
                     print(batch_accuracy)
                     sum_accuracy += batch_accuracy
                     processed += 1
@@ -183,9 +183,8 @@ def main(args):
 
 
 if __name__ == "__main__":
-    # pylint: disable=C0103
-    parser = argparse.ArgumentParser(
+    PARSER = argparse.ArgumentParser(
         description="Test the model using the PASCIFAR datast")
-    parser.add_argument("--device", default="/gpu:1")
-    parser.add_argument("--test-ds")
-    sys.exit(main(parser.parse_args()))
+    PARSER.add_argument("--device", default="/gpu:1")
+    PARSER.add_argument("--test-ds")
+    sys.exit(main(PARSER.parse_args()))
