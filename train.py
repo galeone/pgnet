@@ -80,16 +80,17 @@ def export_model():
     its inputs."""
     # if the trained model does not exist
     if not os.path.exists(TRAINED_MODEL_FILENAME):
-        # create an empth graph
+        # create an empty graph into the CPU because GPU can run OOM
         graph = tf.Graph()
-        with graph.as_default():
+        with graph.as_default(), tf.device('/cpu:0'):
             # inject in the default graph the model structure
             define_model(is_training=False)
             # create a saver, to restore the graph in the session_dir
             saver = tf.train.Saver(tf.all_variables())
 
             # create a new session
-            with tf.Session() as sess:
+            with tf.Session(config=tf.ConfigProto(
+                    allow_soft_placement=True)) as sess:
                 # restore previous session if exists
                 checkpoint = tf.train.get_checkpoint_state(SESSION_DIR)
                 if checkpoint and checkpoint.model_checkpoint_path:
@@ -105,11 +106,12 @@ def export_model():
                                      "skeleton.pb",
                                      as_text=False)
 
-                freeze_graph.freeze_graph(SESSION_DIR + "/skeleton.pb", "",
-                                          True, SESSION_DIR + "/model-0",
-                                          "softmax_linear/out",
-                                          "save/restore_all", "save/Const:0",
-                                          TRAINED_MODEL_FILENAME, False, "")
+                freeze_graph.freeze_graph(
+                    SESSION_DIR + "/skeleton.pb", "", True,
+                    SESSION_DIR + "/model-0",
+                    "softmax_linear/BatchNorm/batchnorm/add_1",
+                    "save/restore_all", "save/Const:0", TRAINED_MODEL_FILENAME,
+                    True, "")
     else:
         print("{} already exists. Skipping export_model".format(
             TRAINED_MODEL_FILENAME))
