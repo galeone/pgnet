@@ -85,7 +85,7 @@ def eq_conv_layer(input_x, kernel_side, num_kernels, is_training=False):
 
 def block(input_x, kernel_side, num_kernels, exp, is_training=False):
     """ block returns the result of 4 convolution, using the eq_conv_layer.
-    The first thw layers have num_kernels kernels, the last two num_kernels*exp
+    The first two layers have num_kernels kernels, the last two num_kernels*exp
 
     params:
         input_x: [batch_size, height, width, depth]
@@ -140,7 +140,7 @@ def get(image_, num_classes, keep_prob_=1.0, is_training=False):
     # of at least 184x184 (max value² of the average dimensions of the cropped pascal dataset)
     with tf.variable_scope("block1"):
         num_kernels = 2**5
-        block1 = block(image_, kernel_side, num_kernels, exp=2)
+        block1 = block(image_, kernel_side, num_kernels, exp=2, is_training)
         num_kernels *= 2
     #output: 184x184x64
     print(block1)
@@ -166,7 +166,7 @@ def get(image_, num_classes, keep_prob_=1.0, is_training=False):
     # repeat the l1, using pool1 as input. Do not incrase the number of learned filter
     # Preserve input depth
     with tf.variable_scope("block2"):
-        block2 = block(pool1, kernel_side, num_kernels, exp=2)
+        block2 = block(pool1, kernel_side, num_kernels, exp=2, is_training)
         num_kernels *= 2
         #output: 92x92x128
         print(block2)
@@ -182,7 +182,7 @@ def get(image_, num_classes, keep_prob_=1.0, is_training=False):
     print(pool2)
 
     with tf.variable_scope("block3"):
-        block3 = block(pool2, kernel_side, num_kernels, exp=2)
+        block3 = block(pool2, kernel_side, num_kernels, exp=2, is_training)
         num_kernels *= 2
         #output: 46x46x512
         print(block3)
@@ -209,7 +209,7 @@ def get(image_, num_classes, keep_prob_=1.0, is_training=False):
     with tf.variable_scope("softmax_linear"):
         out = conv_layer(dropout, [1, 1, NUM_NEURONS, num_classes], "VALID",
                          is_training)
-        # output: (BATCH_SIZE)1x1xnum_classes if the input has been properly scaled
+        # output: (BATCH_SIZE)x1x1xnum_classes if the input has been properly scaled
         # otherwise is a map
         print(out)
 
@@ -227,11 +227,12 @@ def loss(logits, labels):
     """
 
     with tf.variable_scope("loss"):
-        # reshape logits to a vector of num_classes elements
-        # -1 = every batch size
         num_classes = logits.get_shape()[-1].value
-        logits = tf.reshape(logits, [-1, num_classes])
 
+        # remove dimension of size 1 from logits tensor
+        # since logits tensor is: (BATCH_SIZE)x1x1xnum_classes
+        # remove dimension in position 1 and 2
+        logits = tf.squeeze(logits, [1, 2])
         labels = tf.cast(labels, tf.int64)
 
         # cross_entropy across the batch
