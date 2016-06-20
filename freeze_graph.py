@@ -1,4 +1,4 @@
-# Copyright 2015 Google Inc. All Rights Reserved.
+# Copyright 2015 The TensorFlow Authors. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -113,8 +113,8 @@ def freeze_graph(input_graph, input_saver, input_binary, input_checkpoint,
                 saver = tf.train.Saver(saver_def=saver_def)
                 saver.restore(sess, input_checkpoint)
         else:
-            sess.run([restore_op_name], {filename_tensor_name:
-                                         input_checkpoint})
+            sess.run([restore_op_name],
+                     {filename_tensor_name: input_checkpoint})
             if initializer_nodes:
                 sess.run(initializer_nodes)
         output_graph_def = graph_util.convert_variables_to_constants(
