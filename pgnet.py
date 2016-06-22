@@ -15,7 +15,10 @@ Conventions:
     var_: placeholder
 """
 
+import os
+import sys
 import tensorflow as tf
+import freeze_graph
 import utils
 
 # network input constants
@@ -28,6 +31,9 @@ LEARNING_RATE = 1e-2  # Initial learning rate.
 
 # number of neurons in the last "fully connected" (1x1 conv) layer
 NUM_NEURONS = 1536
+
+# output tensor name
+OUTPUT_TENSOR_NAME = "softmax_linear/out"
 
 
 def conv_layer(input_x, kernel_shape, padding, is_training=False):
@@ -50,17 +56,15 @@ def conv_layer(input_x, kernel_shape, padding, is_training=False):
     kernels = utils.kernels(kernel_shape, "kernels")
     bias = utils.bias([num_kernels], "bias")
 
-    relu_out = tf.nn.relu(
+    out = tf.nn.relu(
         tf.add(
             tf.nn.conv2d(input_x,
                          kernels,
                          strides=[1, 1, 1, 1],
                          padding=padding),
             bias),
-        name="relu_out")
-
-    # https://github.com/ducha-aiki/caffenet-benchmark/blob/master/batchnorm.md
-    return tf.contrib.layers.batch_norm(relu_out, is_training=is_training)
+        name="out")
+    return out
 
 
 def eq_conv_layer(input_x, kernel_side, num_kernels, is_training=False):
@@ -119,8 +123,8 @@ def get(image_, num_classes, keep_prob_=1.0, is_training=False):
     """
     @input:
         image_ is a tensor with shape [-1, widht, height, depth]
-        num_classes: number of classes
-        keep_prob_: dropput probability
+
+        keep_prob_: dropout probability
         is_training: set it to True when training.
 
     As the net goes deeper, increase the number of filters (using power of 2
@@ -130,7 +134,7 @@ def get(image_, num_classes, keep_prob_=1.0, is_training=False):
     be achieved using multiple small filters, that uses less computation resources.
 
     @returns:
-        softmax_linear: spatial map of output vectors (unscaled)
+        softmax_linear/out: spatial map of output vectors (unscaled)
     """
     print(image_)
 
@@ -214,7 +218,10 @@ def get(image_, num_classes, keep_prob_=1.0, is_training=False):
         fc1 = conv_layer(pool3, [23, 23, num_kernels, NUM_NEURONS], "VALID",
                          is_training)
         # output: 1x1xNUM_NEURONS
-        dropout = tf.nn.dropout(fc1, keep_prob_, name="dropout")
+        if is_training:
+            dropout = tf.nn.dropout(fc1, keep_prob_, name="dropout")
+        else:
+            dropout = tf.nn.dropout(fc1, 1.0, name="dropout")
         print(dropout)
         # output: 1x1xNUM_NEURONS
 
@@ -239,8 +246,6 @@ def loss(logits, labels):
     """
 
     with tf.variable_scope("loss"):
-        num_classes = logits.get_shape()[-1].value
-
         # remove dimension of size 1 from logits tensor
         # since logits tensor is: (BATCH_SIZE)x1x1xnum_classes
         # remove dimension in position 1 and 2
@@ -275,3 +280,79 @@ def train(loss_op, global_step):
         minimizer = optimizer.minimize(loss_op, global_step=global_step)
 
     return minimizer
+
+
+def define_model(num_classes, is_training):
+    """ define the model with its inputs.
+    Use this function to define the model in training and when exporting the model
+    in the protobuf format.
+
+    Args:
+        num_classes: number of classes
+        is_training: set it to True when defining the model, during train
+
+    Return:
+        keep_prob_: model dropput placeholder
+        images_: input images placeholder
+        logits: the model output
+    """
+    # model dropout keep_prob placeholder
+    keep_prob_ = tf.placeholder(tf.float32, name="keep_prob_")
+    images_ = tf.placeholder(tf.float32,
+                             shape=[None, INPUT_SIDE, INPUT_SIDE, INPUT_DEPTH],
+                             name="images_")
+
+    # build a graph that computes the logits predictions from the images
+    logits = get(images_, num_classes, keep_prob_, is_training=is_training)
+    return keep_prob_, images_, logits
+
+
+def export_model(num_classes, session_dir, input_checkpoint, model_filename):
+    """Export model defines the model in a new empty graph.
+    Creates a saver for the model.
+    Restores the session if exists, otherwise prints an error and returns -1
+    Once the session has beeen restored, writes in the session_dir the graphs skeleton
+    and creates the model.pb file, that holds the computational graph of the model and
+    its inputs.
+
+    Args:
+        num_classes: number of classes of the trained model
+        session_dir: absolute path of the checkpoint folder
+        input_checkpoint: the name of the latest checkpoint (or the desidered checkpoint to restore).
+                          will look into session_dir/input_checkpoint (eg: session_dir/model-0)
+        model_filename: the name of the freezed model
+    """
+    # if the trained model does not exist
+    if not os.path.exists(model_filename):
+        # create an empty graph into the CPU because GPU can run OOM
+        graph = tf.Graph()
+        with graph.as_default(), tf.device('/cpu:0'):
+            # inject in the default graph the model structure
+            define_model(num_classes, is_training=False)
+            # create a saver, to restore the graph in the session_dir
+            saver = tf.train.Saver(tf.all_variables())
+
+            # create a new session
+            with tf.Session(config=tf.ConfigProto(
+                    allow_soft_placement=True)) as sess:
+                try:
+                    saver.restore(sess, session_dir + "/" + input_checkpoint)
+                except ValueError:
+                    print("[E] Unable to restore from checkpoint",
+                          file=sys.stderr)
+                    return -1
+
+                # save model skeleton (the empty graph, its definition)
+                tf.train.write_graph(graph.as_graph_def(),
+                                     session_dir,
+                                     "skeleton.pbtxt",
+                                     as_text=True)
+
+                freeze_graph.freeze_graph(
+                    session_dir + "/skeleton.pbtxt", "", False,
+                    session_dir + "/" + input_checkpoint, OUTPUT_TENSOR_NAME,
+                    "save/restore_all", "save/Const:0", model_filename, True,
+                    "")
+    else:
+        print("{} already exists. Skipping export_model".format(
+            model_filename))

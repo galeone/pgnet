@@ -15,7 +15,6 @@ import time
 from datetime import datetime
 import numpy as np
 import tensorflow as tf
-import freeze_graph
 import pgnet
 import pascal_input
 
@@ -42,80 +41,6 @@ AVG_VALIDATION_ACCURACIES = [0.0
 
 # tensorflow saver constant
 SAVE_MODEL_STEP = 500
-
-
-def define_model(is_training):
-    """ define the model with its inputs.
-    Use this function to define the model in training and when exporting the model
-    in the protobuf format. We're not interested in the oter variables.
-    Args:
-        is_training: set it to True when defining the model, during train
-
-    Return:
-        keep_prob_: model dropput placeholder
-        images_: input images placeholder
-        logits: the model output
-    """
-    # model dropout keep_prob placeholder
-    keep_prob_ = tf.placeholder(tf.float32, name="keep_prob_")
-    images_ = tf.placeholder(tf.float32,
-                             shape=[None, pgnet.INPUT_SIDE, pgnet.INPUT_SIDE,
-                                    pgnet.INPUT_DEPTH],
-                             name="images_")
-
-    # build a graph that computes the logits predictions from the images
-    logits = pgnet.get(images_,
-                       pascal_input.NUM_CLASSES,
-                       keep_prob_,
-                       is_training=is_training)
-    return keep_prob_, images_, logits
-
-
-def export_model():
-    """Export model defines the model in a new empty graph.
-    Creates a saver for the model.
-    Restores the session if exists, othervise prints an error and returns -1
-    Once the session has beeen restored, writes in the SESSION_DIR the graphs skeleton
-    and creates the model.pb file, that holds the computational graph of the model and
-    its inputs."""
-    # if the trained model does not exist
-    if not os.path.exists(TRAINED_MODEL_FILENAME):
-        # create an empty graph into the CPU because GPU can run OOM
-        graph = tf.Graph()
-        with graph.as_default(), tf.device('/cpu:0'):
-            # inject in the default graph the model structure
-            define_model(is_training=False)
-            # create a saver, to restore the graph in the session_dir
-            saver = tf.train.Saver(tf.all_variables())
-
-            # create a new session
-            with tf.Session(config=tf.ConfigProto(
-                    allow_soft_placement=True)) as sess:
-                # restore previous session if exists
-                checkpoint = tf.train.get_checkpoint_state(SESSION_DIR)
-                if checkpoint and checkpoint.model_checkpoint_path:
-                    saver.restore(sess, checkpoint.model_checkpoint_path)
-                else:
-                    print("[E] Unable to restore from checkpoint",
-                          file=sys.stderr)
-                    return -1
-
-                # save model skeleton (the empty graph, its definition)
-                tf.train.write_graph(graph.as_graph_def(),
-                                     SESSION_DIR,
-                                     "skeleton.pb",
-                                     as_text=False)
-
-                freeze_graph.freeze_graph(
-                    SESSION_DIR + "/skeleton.pb", "", True,
-                    SESSION_DIR + "/model-0",
-                    "softmax_linear/BatchNorm/batchnorm/add_1",
-                    "save/restore_all", "save/Const:0", TRAINED_MODEL_FILENAME,
-                    True, "")
-    else:
-        print("{} already exists. Skipping export_model".format(
-            TRAINED_MODEL_FILENAME))
-    return 0
 
 
 def train(args):
@@ -153,7 +78,9 @@ def train(args):
                                          shape=[None],
                                          name="labels_")
 
-                keep_prob_, images_, logits = define_model(is_training=True)
+                keep_prob_, images_, logits = pgnet.define_model(
+                    pascal_input.NUM_CLASSES,
+                    is_training=True)
 
                 # loss op
                 loss_op = pgnet.loss(logits, labels_)
@@ -167,8 +94,7 @@ def train(args):
             with tf.variable_scope("accuracy"):
                 # reshape logits to a [-1, pascal_input.NUM_CLASSES] vector
                 # (remeber that pgnet is fully convolutional)
-                reshaped_logits = tf.reshape(logits,
-                                             [-1, pascal_input.NUM_CLASSES])
+                reshaped_logits = tf.squeeze(logits, [1, 2])
 
                 # returns the label predicted
                 # reshaped_logits contains NUM_CLASSES values in NUM_CLASSES
@@ -302,6 +228,7 @@ def train(args):
                                 keep_prob_: 1.0,
                                 accuracy_name_: "training_accuracy"
                             })
+
                         # save summary for training accuracy
                         summary_writer.add_summary(summary_line,
                                                    global_step=gs_value)
@@ -364,7 +291,10 @@ def train(args):
                 coord.join(threads)
 
         # if here, the summary dir contains the trained model
-        export_model()
+        current_dir = os.path.abspath(os.getcwd())
+        pgnet.export_model(pascal_input.NUM_CLASSES, current_dir + "/session",
+                           "model-0", "model.pb")
+
     else:
         print("Trained model {} already exits".format(TRAINED_MODEL_FILENAME))
     return 0

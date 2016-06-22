@@ -15,10 +15,11 @@ import os
 import sys
 import tensorflow as tf
 import train
+import pgnet
 import pascifar_input
 import pascal_input
 
-BATCH_SIZE = 250
+BATCH_SIZE = 50
 
 PASCAL2PASCIFAR = {  #pascal - #pascifar
     "airplane": "airplane",  #0 - #0
@@ -87,9 +88,12 @@ def main(args):
         return 1
 
     # export model.pb from session dir. Skip if model.pb already exists
-    train.export_model()
+    current_dir = os.path.abspath(os.getcwd())
+    pgnet.export_model(pascal_input.NUM_CLASSES, current_dir + "/session",
+                       "model-0", "model.pb")
 
-    with tf.Graph().as_default() as graph, tf.device(args.device):
+    graph = tf.Graph()
+    with graph.as_default(), tf.device('/cpu:0'):
         const_graph_def = tf.GraphDef()
         with open(train.TRAINED_MODEL_FILENAME, 'rb') as saved_graph:
             const_graph_def.ParseFromString(saved_graph.read())
@@ -100,19 +104,12 @@ def main(args):
 
         # now the current graph contains the trained model
 
-        # exteact the pgnet output from the graph and scale the result
-        # using softmax
-        softmax_linear = graph.get_tensor_by_name(
-            "softmax_linear/BatchNorm/batchnorm/add_1:0")
-        # softmax_linear is the output of a 1x1xNUM_CLASS convolution
-        # to use the softmax we have to reshape it back to (?, pascal_input.NUM_CLASSES)
-        # because pgnet has been trained on the PASCAL datset.
-        softmax_linear = tf.squeeze(softmax_linear, [1, 2])
-        softmax = tf.nn.softmax(softmax_linear, name="softmax")
-        #softmax = softmax_linear
+        logits = graph.get_tensor_by_name(pgnet.OUTPUT_TENSOR_NAME + ":0")
+
+        reshaped_logits = tf.squeeze(logits, [1, 2])
 
         # [batch_size] vector
-        predictions = tf.argmax(softmax, 1)
+        predictions = tf.argmax(reshaped_logits, 1)
         # sparse labels, pgnet output -> 20 possible values
         labels_ = tf.placeholder(tf.int64, [None])
         correct_predictions = tf.equal(labels_, predictions)
@@ -122,7 +119,13 @@ def main(args):
         image_queue, label_queue = pascifar_input.test(
             args.test_ds, BATCH_SIZE, args.test_ds + "/ts.csv")
 
-        init_op = tf.initialize_all_variables()
+        # initialize all variables
+        all_variables = set(tf.all_variables())
+
+        # EXCEPT model variables (that has been marked as trainable)
+        model_variables = set(tf.trainable_variables())
+        init_op = tf.initialize_variables(list(all_variables -
+                                               model_variables))
 
         with tf.Session(config=tf.ConfigProto(
                 allow_soft_placement=True)) as sess:
@@ -136,9 +139,9 @@ def main(args):
             try:
                 processed = 0
                 sum_accuracy = 0.0
-                sum_accuracy_per_class = {label: 0.0
-                                          for label in PASCAL2PASCIFAR.values()
-                                          }
+                #sum_accuracy_per_class = {label: 0.0
+                #                          for label in PASCAL2PASCIFAR.values()
+                #                          }
                 while not coord.should_stop():
                     image_batch, label_batch = sess.run(
                         [image_queue, label_queue])
@@ -150,21 +153,18 @@ def main(args):
                                         for label in label_batch]
 
                     # run prediction on images resized
-                    predicted_labels, sl, softmax_value, batch_accuracy = sess.run(
-                        [predictions, softmax_linear, softmax, accuracy],
+                    predicted_labels, batch_accuracy = sess.run(
+                        [predictions, accuracy],
                         feed_dict={
                             "keep_prob_:0": 1.0,
-                            "images_:0":
-                            image_batch,
-                            labels_:
-                            converted_labels,
+                            "images_:0": image_batch,
+                            labels_: converted_labels
                         })
 
-                    print(label_batch)
                     print(converted_labels)
                     print(predicted_labels)
-                    print(softmax_value)
                     print(batch_accuracy)
+
                     sum_accuracy += batch_accuracy
                     processed += 1
 

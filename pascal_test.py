@@ -37,10 +37,12 @@ def main(args):
         print("{} does not exists".format(args.test_ds))
         return 1
 
-    # export model.pb from session dir. Skip if model.pb already exists
-    train.export_model()
-
     current_dir = os.path.abspath(os.getcwd())
+
+    # export model.pb from session dir. Skip if model.pb already exists
+    pgnet.export_model(pascal_input.NUM_CLASSES, current_dir + "/session",
+                       "model-0", "model.pb")
+
     results_dir = "{}/results".format(current_dir)
 
     ##### Image classification competition #####
@@ -62,7 +64,8 @@ def main(args):
 
         # exteact the pgnet output from the graph and scale the result
         # using softmax
-        softmax_linear = graph.get_tensor_by_name("softmax_linear/out:0")
+        softmax_linear = graph.get_tensor_by_name(pgnet.OUTPUT_TENSOR_NAME +
+                                                  ":0")
         # softmax_linear is the output of a 1x1xNUM_CLASS convolution
         # to use the softmax we have to reshape it back to (?,NUM_CLASS)
         softmax_linear = tf.squeeze(softmax_linear, [1, 2])
@@ -70,17 +73,8 @@ def main(args):
 
         # get the input queue of resized (or cropped) test images
         # use 29 as batch_size because is a divisor of the test dataset size
-        #test_center_cropped_queue, test_center_cropped_filename_queue = pascal_input.test(
-        #    args.test_ds,
-        #    29,
-        #    args.test_ds + "/ImageSets/Main/test.txt",
-        #    method="central-crop")
-
         test_resize_queue, test_resize_filename_queue = pascal_input.test(
-            args.test_ds,
-            29,
-            args.test_ds + "/ImageSets/Main/test.txt",
-            method="resize")
+            args.test_ds, 29, args.test_ds + "/ImageSets/Main/test.txt")
 
         init_op = tf.initialize_all_variables()
 
@@ -155,7 +149,7 @@ def main(args):
 
 if __name__ == "__main__":
     # pylint: disable=C0103
-    parser = argparse.ArgumentParser(description="Test the model")
-    parser.add_argument("--device", default="/gpu:1")
-    parser.add_argument("--test-ds")
-    sys.exit(main(parser.parse_args()))
+    PARSER = argparse.ArgumentParser(description="Test the model")
+    PARSER.add_argument("--device", default="/gpu:1")
+    PARSER.add_argument("--test-ds")
+    sys.exit(main(PARSER.parse_args()))

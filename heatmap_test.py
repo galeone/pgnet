@@ -12,6 +12,8 @@ import os
 import sys
 import tensorflow as tf
 import train
+import pgnet
+import pascal_input
 
 
 def main(args):
@@ -21,8 +23,11 @@ def main(args):
         print("{} does not exists".format(args.image_path))
         return 1
 
+    current_dir = os.path.abspath(os.getcwd())
+
     # export model.pb from session dir. Skip if model.pb already exists
-    train.export_model()
+    pgnet.export_model(pascal_input.NUM_CLASSES, current_dir + "/session",
+                       "model-0", "model.pb")
 
     with tf.Graph().as_default() as graph, tf.device(args.device):
         const_graph_def = tf.GraphDef()
@@ -38,7 +43,8 @@ def main(args):
         # exteact the pgnet output from the graph and scale the result
         # using softmax
 
-        softmax_linear = graph.get_tensor_by_name("softmax_linear/out:0")
+        softmax_linear = graph.get_tensor_by_name(pgnet.OUTPUT_TENSOR_NAME +
+                                                  ":0")
         # softmax_linear is the output of a 1x1xNUM_CLASS convolution
         # to use the softmax we have to reshape it back to (?,NUM_CLASS)
         #softmax_linear = tf.reshape(softmax_linear, [-1, pgnet.NUM_CLASS])
@@ -71,8 +77,7 @@ def main(args):
 
 
 if __name__ == "__main__":
-    # pylint: disable=C0103
-    parser = argparse.ArgumentParser(description="Train the model")
-    parser.add_argument("--device", default="/gpu:1")
-    parser.add_argument("--image-path")
-    sys.exit(main(parser.parse_args()))
+    PARSER = argparse.ArgumentParser(description="Train the model")
+    PARSER.add_argument("--device", default="/gpu:1")
+    PARSER.add_argument("--image-path")
+    sys.exit(main(PARSER.parse_args()))
