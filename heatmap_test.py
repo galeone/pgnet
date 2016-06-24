@@ -65,7 +65,6 @@ def main(args):
             image_evaluated = image.eval()
             predictions_prob = sess.run(softmax_linear,
                                         feed_dict={
-                                            "keep_prob_:0": 1.0,
                                             "images_:0": image_evaluated,
                                         })
 

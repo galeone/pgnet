@@ -100,7 +100,6 @@ def main(args):
                     #batch_predictions_cropped = sess.run(
                     #    softmax,
                     #    feed_dict={
-                    #        "keep_prob_:0": 1.0,
                     #        "images_:0": image_batch_cropped,
                     #    })
 
@@ -110,8 +109,6 @@ def main(args):
                     # run prediction on images resized
                     batch_predictions_resize = sess.run(softmax,
                                                         feed_dict={
-                                                            "keep_prob_:0":
-                                                            1.0,
                                                             "images_:0":
                                                             image_batch_resize,
                                                         })

@@ -156,7 +156,6 @@ def main(args):
                     predicted_labels, batch_accuracy = sess.run(
                         [predictions, accuracy],
                         feed_dict={
-                            "keep_prob_:0": 1.0,
                             "images_:0": image_batch,
                             labels_: converted_labels
                         })
