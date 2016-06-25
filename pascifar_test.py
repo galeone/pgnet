@@ -21,64 +21,6 @@ import pascal_input
 
 BATCH_SIZE = 50
 
-PASCAL2PASCIFAR = {  #pascal - #pascifar
-    "airplane": "airplane",  #0 - #0
-    "bicycle": "bicycle",  #1
-    "bird": "bird",  #2 
-    "boat": "boat",  #3
-    "bottle": "bottle",  #4
-    "bus": "bus",  #5
-    "car": "car",  #6
-    "cat": "cat",  #7
-    "chair": "chair",  #8 - #8
-    "cow": "MISSING",  #9
-    "diningtable": "diningtable",  #10 - # 9
-    "dog": "dog",  #11 - #10
-    "horse": "horse",  #12 - #11
-    "motorbike": "motorbike",  #13 - #12
-    "person": "person",  #14 - #13
-    "pottedplant": "MISSING",  #15
-    "sheep": "MISSING",  #16
-    "sofa": "sofa",  #17 - #14
-    "train": "train",  #18 - #15
-    "tvmonitor": "tvmonitor",  #19 #16
-}
-
-
-def pascal_id_2_pascifar_id(pascal_id):
-    """pgnet outputs the label of the cropped pascal dataset.
-    This methods converts the pascal based prediction to pascifar.
-    Returns -1 if pgnet predicted a class that's not in the PASCIFAR dataset.
-    """
-    # missing labels
-    if pascal_id == 9:
-        return -1
-
-    if pascal_id == 15:
-        return -2
-
-    if pascal_id == 16:
-        return -3
-
-    if pascal_id <= 8:
-        return pascal_id
-
-    if pascal_id >= 10 and pascal_id <= 14:
-        return pascal_id - 1
-
-    return pascal_id - 3
-
-
-def pascifar_id_2_pascal_id(pascifar_id):
-    """ converts pascifar ids to pascal ids"""
-    if pascifar_id <= 8:
-        return pascifar_id
-
-    if pascifar_id >= 9 and pascifar_id <= 13:
-        return pascifar_id + 1
-
-    return pascifar_id + 3
-
 
 def main(args):
     """ main """
@@ -146,21 +88,15 @@ def main(args):
                     image_batch, label_batch = sess.run(
                         [image_queue, label_queue])
 
-                    # label_batch are pascifar labels
-                    # convert it to pascal labels in order to
-                    # properly evaluate the accuracy of the model
-                    converted_labels = [pascifar_id_2_pascal_id(label)
-                                        for label in label_batch]
-
                     # run prediction on images resized
                     predicted_labels, batch_accuracy = sess.run(
                         [predictions, accuracy],
                         feed_dict={
                             "images_:0": image_batch,
-                            labels_: converted_labels
+                            labels_: label_batch,
                         })
 
-                    print(converted_labels)
+                    print(label_batch)
                     print(predicted_labels)
                     print(batch_accuracy)
 
