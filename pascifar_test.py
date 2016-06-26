@@ -14,12 +14,13 @@ import argparse
 import os
 import sys
 import tensorflow as tf
+import numpy as np
 import train
 import pgnet
 import pascifar_input
 import pascal_input
 
-BATCH_SIZE = 50
+BATCH_SIZE = 100
 
 
 def main(args):
@@ -47,16 +48,13 @@ def main(args):
         # now the current graph contains the trained model
 
         logits = graph.get_tensor_by_name(pgnet.OUTPUT_TENSOR_NAME + ":0")
+        logits = tf.squeeze(logits, [1, 2])
 
-        reshaped_logits = tf.squeeze(logits, [1, 2])
-
-        # [batch_size] vector
-        predictions = tf.argmax(reshaped_logits, 1)
         # sparse labels, pgnet output -> 20 possible values
         labels_ = tf.placeholder(tf.int64, [None])
-        correct_predictions = tf.equal(labels_, predictions)
 
-        accuracy = tf.reduce_mean(tf.cast(correct_predictions, tf.float32))
+        top_1_op = tf.nn.in_top_k(logits, labels_, 1)
+        top_5_op = tf.nn.in_top_k(logits, labels_, 5)
 
         image_queue, label_queue = pascifar_input.test(
             args.test_ds, BATCH_SIZE, args.test_ds + "/ts.csv")
@@ -79,8 +77,9 @@ def main(args):
             threads = tf.train.start_queue_runners(sess=sess, coord=coord)
 
             try:
+                count_top_1 = 0.0
+                count_top_5 = 0.0
                 processed = 0
-                sum_accuracy = 0.0
                 #sum_accuracy_per_class = {label: 0.0
                 #                          for label in PASCAL2PASCIFAR.values()
                 #                          }
@@ -88,25 +87,26 @@ def main(args):
                     image_batch, label_batch = sess.run(
                         [image_queue, label_queue])
 
-                    # run prediction on images resized
-                    predicted_labels, batch_accuracy = sess.run(
-                        [predictions, accuracy],
-                        feed_dict={
-                            "images_:0": image_batch,
-                            labels_: label_batch,
-                        })
-
-                    print(label_batch)
-                    print(predicted_labels)
-                    print(batch_accuracy)
-
-                    sum_accuracy += batch_accuracy
+                    top_1, top_5 = sess.run([top_1_op, top_5_op],
+                                            feed_dict={
+                                                "images_:0": image_batch,
+                                                labels_: label_batch,
+                                            })
+                    count_top_1 += np.sum(top_1)
+                    count_top_5 += np.sum(top_5)
                     processed += 1
 
+                    print(label_batch)
+                    print(top_1, top_5)
+
             except tf.errors.OutOfRangeError:
-                print("[I] Done. Test completed!")
-                print("Processed {} images".format(processed * BATCH_SIZE))
-                print("Avg accuracy: {}".format(sum_accuracy / processed))
+                total_sample_count = processed * BATCH_SIZE
+                precision_at_1 = count_top_1 / total_sample_count
+                recall_at_5 = count_top_5 / total_sample_count
+
+                print(
+                    'precision @ 1 = {} recall @ 5 = {} [{} examples]'.format(
+                        precision_at_1, recall_at_5, total_sample_count))
                 print("Accuracy per class: ")
                 # TODO
             finally:
