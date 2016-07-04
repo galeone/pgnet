@@ -275,7 +275,7 @@ def train(loss_op, global_step):
     """
     # Variables that affect learning rate.
     with tf.variable_scope("train"):
-        optimizer = tf.train.AdadeltaOptimizer(LEARNING_RATE)
+        optimizer = tf.train.AdamOptimizer(LEARNING_RATE)
         # minimizes loss and increments global_step by 1
         minimizer = optimizer.minimize(loss_op, global_step=global_step)
 
