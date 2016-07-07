@@ -27,7 +27,7 @@ INPUT_DEPTH = 3
 
 # train constants
 BATCH_SIZE = 32
-LEARNING_RATE = 1e-2  # Initial learning rate.
+LEARNING_RATE = 1e-5  # Initial learning rate.
 
 # number of neurons in the last "fully connected" (1x1 conv) layer
 NUM_NEURONS = 1536
