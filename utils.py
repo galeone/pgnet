@@ -24,30 +24,15 @@ def print_graph_ops(graph):
         print("")
 
 
-def variable_summaries(var, name):
-    """ variables_summaries creates the following summaries for var, with name.
-    1. mean
-    2. stddev
-    3. min
-    4. max
-    And the histogram of var.
-    Returns the defined summaries in a list.
-    The returned value can be discarted if the function has been called inside the default graph.
+def log_histogram(var, name):
+    """log_histogram creates and histogrm summary for var, with name
+    The returned value can be discarded if the function has been called inside the default graph.
 
     Remeber to call tf.merge_all_summaries() before tf.initialize_all_variables()
     """
 
     with tf.name_scope("summaries"):
-        summaries = []
-        mean = tf.reduce_mean(var)
-        summaries.append(tf.scalar_summary('mean/' + name, mean))
-        with tf.name_scope('stddev'):
-            stddev = tf.sqrt(tf.reduce_sum(tf.square(var - mean)))
-        summaries.append(tf.scalar_summary('sttdev/' + name, stddev))
-        summaries.append(tf.scalar_summary('max/' + name, tf.reduce_max(var)))
-        summaries.append(tf.scalar_summary('min/' + name, tf.reduce_min(var)))
-        summaries.append(tf.histogram_summary(name, var))
-        return summaries
+        return tf.histogram_summary(name, var)
 
 
 def weight(shape,
@@ -58,7 +43,7 @@ def weight(shape,
     Creates baisc summaries too.
     Returns the weight tensor"""
     w = tf.get_variable(name, shape, initializer=initializer)
-    _ = variable_summaries(w, w.name)
+    _ = log_histogram(w, w.name)
     return w
 
 
@@ -94,7 +79,7 @@ def bias(shape, name, init_val=0.0):
     b = tf.get_variable(name,
                         shape,
                         initializer=tf.constant_initializer(init_val))
-    _ = variable_summaries(b, b.name)
+    _ = log_histogram(b, b.name)
     return b
 
 
