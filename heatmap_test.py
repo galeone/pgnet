@@ -11,9 +11,24 @@ import argparse
 import os
 import sys
 import tensorflow as tf
+import cv2
 import train
 import pgnet
 import pascal_input
+import image_processing
+
+
+def read_and_resize_image(image_path, output_side, image_type="jpg"):
+    side = 250
+    """Read the entire image and resize it to 448x448"""
+    #TODO: use image_processing.eval_image to parse each box
+    if image_type == "jpg":
+        image = image_processing.read_image_jpg(image_path, 3)
+    else:
+        image = image_processing.read_image_png(image_path, 3)
+
+    image = image_processing.resize_bl(image, side)
+    return image
 
 
 def main(args):
@@ -25,9 +40,14 @@ def main(args):
 
     current_dir = os.path.abspath(os.getcwd())
 
+    # Number of classes in the dataset plus 1.
+    # Labelp pascal_input. NUM_CLASSES + 1 is reserved for
+    # an (unused) background class.
+    num_classes = pascal_input.NUM_CLASSES + 1
+
     # export model.pb from session dir. Skip if model.pb already exists
-    pgnet.export_model(pascal_input.NUM_CLASSES, current_dir + "/session",
-                       "model-0", "model.pb")
+    pgnet.export_model(num_classes, current_dir + "/session", "model-0",
+                       "model.pb")
 
     with tf.Graph().as_default() as graph, tf.device(args.device):
         const_graph_def = tf.GraphDef()
@@ -40,43 +60,43 @@ def main(args):
 
         # now the current graph contains the trained model
 
-        # exteact the pgnet output from the graph and scale the result
-        # using softmax
+        # (?, n, n, NUM_CLASSES) tensor
+        logits = graph.get_tensor_by_name(pgnet.OUTPUT_TENSOR_NAME + ":0")
 
-        softmax_linear = graph.get_tensor_by_name(pgnet.OUTPUT_TENSOR_NAME +
-                                                  ":0")
-        # softmax_linear is the output of a 1x1xNUM_CLASS convolution
-        # to use the softmax we have to reshape it back to (?,NUM_CLASS)
-        #softmax_linear = tf.reshape(softmax_linear, [-1, pgnet.NUM_CLASS])
-        #softmax = tf.nn.softmax(softmax_linear, name="softmax")
+        # array[0]=values, [1]=indices
+        top_k = tf.nn.top_k(logits, k=5)
 
         with tf.Session(config=tf.ConfigProto(
                 allow_soft_placement=True)) as sess:
 
-            # prepend the path
-            image_path = tf.constant(args.image_path)
-            # read the image
-            image = tf.image.decode_jpeg(tf.read_file(image_path))
+            image = tf.expand_dims(
+                read_and_resize_image(
+                    tf.constant(args.image_path),
+                    pgnet.INPUT_SIDE,
+                    image_type=args.image_path.split('.')[-1]),
+                0).eval()
 
-            # pgnet accepts a batch of images as input, add the "batch" dimension.
-            image = tf.expand_dims(image, 0)
+            cv2.imshow("resized", image[0])
+            cv2.waitKey(0)
 
-            # feed the input placeholder _images with the current "batch" (1) of image
-            image_evaluated = image.eval()
-            predictions_prob = sess.run(softmax_linear,
-                                        feed_dict={
-                                            "images_:0": image_evaluated,
-                                        })
+            predictions_prob, top_values, top_indices = sess.run(
+                [logits, top_k[0], top_k[1]],
+                feed_dict={
+                    "images_:0": image,
+                })
 
             # remove batch size (we're processing one image at time)
             predictions_prob = predictions_prob[0]
             print(predictions_prob)
-            print(predictions_prob.size)
-            print(predictions_prob.shape)
+            print(top_values)
+            print(top_indices)
+            print("Predictions: ", predictions_prob.size,
+                  predictions_prob.shape)
 
 
 if __name__ == "__main__":
-    PARSER = argparse.ArgumentParser(description="Train the model")
-    PARSER.add_argument("--device", default="/gpu:1")
+    PARSER = argparse.ArgumentParser(
+        description="Apply the model to image-path")
+    PARSER.add_argument("--device", default="/gpu:0")
     PARSER.add_argument("--image-path")
     sys.exit(main(PARSER.parse_args()))

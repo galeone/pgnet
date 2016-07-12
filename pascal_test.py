@@ -39,9 +39,14 @@ def main(args):
 
     current_dir = os.path.abspath(os.getcwd())
 
+    # Number of classes in the dataset plus 1.
+    # Labelp pascal_input. NUM_CLASSES + 1 is reserved for
+    # an (unused) background class.
+    num_classes = pascal_input.NUM_CLASSES + 1
+
     # export model.pb from session dir. Skip if model.pb already exists
-    pgnet.export_model(pascal_input.NUM_CLASSES, current_dir + "/session",
-                       "model-0", "model.pb")
+    pgnet.export_model(num_classes, current_dir + "/session", "model-0",
+                       "model.pb")
 
     results_dir = "{}/results".format(current_dir)
 

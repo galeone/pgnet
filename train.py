@@ -51,6 +51,11 @@ def train(args):
     if not os.path.exists(SUMMARY_DIR):
         os.makedirs(SUMMARY_DIR)
 
+    # Number of classes in the dataset plus 1.
+    # Labelp pascal_input. NUM_CLASSES + 1 is reserved for
+    # an (unused) background class.
+    num_classes = pascal_input.NUM_CLASSES + 1
+
     # if the trained model does not exist
     if not os.path.exists(TRAINED_MODEL_FILENAME):
         # train graph is the graph that contains the variable
@@ -79,8 +84,7 @@ def train(args):
                                          name="labels_")
 
                 keep_prob_, images_, logits = pgnet.define_model(
-                    pascal_input.NUM_CLASSES,
-                    is_training=True)
+                    num_classes, is_training=True)
 
                 # loss op
                 loss_op = pgnet.loss(logits, labels_)
@@ -92,12 +96,11 @@ def train(args):
             summary_op = tf.merge_all_summaries()
 
             with tf.variable_scope("accuracy"):
-                # reshape logits to a [-1, pascal_input.NUM_CLASSES] vector
-                # (remeber that pgnet is fully convolutional)
+                # since pgnet if fully convolutional remove dimensions of size 1
                 reshaped_logits = tf.squeeze(logits, [1, 2])
 
                 # returns the label predicted
-                # reshaped_logits contains NUM_CLASSES values in NUM_CLASSES
+                # reshaped_logits contains num_classes values in num_classes
                 # positions. Each value is the probability for the position class.
                 # Returns the index (thus the label) with highest probability, for each line
                 # [BATCH_SIZE] vector
@@ -292,8 +295,8 @@ def train(args):
 
         # if here, the summary dir contains the trained model
         current_dir = os.path.abspath(os.getcwd())
-        pgnet.export_model(pascal_input.NUM_CLASSES, current_dir + "/session",
-                           "model-0", "model.pb")
+        pgnet.export_model(num_classes, current_dir + "/session", "model-0",
+                           "model.pb")
 
     else:
         print("Trained model {} already exits".format(TRAINED_MODEL_FILENAME))

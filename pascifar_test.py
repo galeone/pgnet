@@ -32,11 +32,17 @@ def main(args):
 
     # export model.pb from session dir. Skip if model.pb already exists
     current_dir = os.path.abspath(os.getcwd())
-    pgnet.export_model(pascal_input.NUM_CLASSES, current_dir + "/session",
-                       "model-0", "model.pb")
+
+    # Number of classes in the dataset plus 1.
+    # Labelp pascal_input. NUM_CLASSES + 1 is reserved for
+    # an (unused) background class.
+    num_classes = pascal_input.NUM_CLASSES + 1
+
+    pgnet.export_model(num_classes, current_dir + "/session", "model-0",
+                       "model.pb")
 
     graph = tf.Graph()
-    with graph.as_default(), tf.device('/cpu:0'):
+    with graph.as_default(), tf.device(args.device):
         const_graph_def = tf.GraphDef()
         with open(train.TRAINED_MODEL_FILENAME, 'rb') as saved_graph:
             const_graph_def.ParseFromString(saved_graph.read())

@@ -122,8 +122,8 @@ def block(input_x, kernel_side, num_kernels, exp, is_training=False):
 def get(image_, num_classes, keep_prob_=1.0, is_training=False):
     """
     @input:
-        image_ is a tensor with shape [-1, widht, height, depth]
-
+        image_: is a tensor placeholder with shape [-1, widht, height, depth]
+        num_classes: is the number of classes that the network will classify
         keep_prob_: dropout probability
         is_training: set it to True when training.
 
