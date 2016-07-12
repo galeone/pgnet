@@ -30,7 +30,7 @@ BATCH_SIZE = 32
 LEARNING_RATE = 1e-5  # Initial learning rate.
 
 # number of neurons in the last "fully connected" (1x1 conv) layer
-NUM_NEURONS = 1536
+NUM_NEURONS = 1024
 
 # output tensor name
 OUTPUT_TENSOR_NAME = "softmax_linear/out"
@@ -219,14 +219,25 @@ def get(image_, num_classes, keep_prob_=1.0, is_training=False):
                          is_training)
         # output: 1x1xNUM_NEURONS
         if is_training:
-            dropout = tf.nn.dropout(fc1, keep_prob_, name="dropout")
+            dropout1 = tf.nn.dropout(fc1, keep_prob_, name="dropout")
         else:
-            dropout = tf.nn.dropout(fc1, 1.0, name="dropout")
-        print(dropout)
+            dropout1 = tf.nn.dropout(fc1, 1.0, name="dropout")
+        print(dropout1)
+        # output: 1x1xNUM_NEURONS
+
+    with tf.variable_scope("fc2"):
+        fc2 = conv_layer(dropout1, [1, 1, NUM_NEURONS, NUM_NEURONS], "VALID",
+                         is_training)
+        # output: 1x1xNUM_NEURONS
+        if is_training:
+            dropout2 = tf.nn.dropout(fc2, keep_prob_, name="dropout")
+        else:
+            dropout2 = tf.nn.dropout(fc2, 1.0, name="dropout")
+        print(dropout2)
         # output: 1x1xNUM_NEURONS
 
     with tf.variable_scope("softmax_linear"):
-        out = conv_layer(dropout, [1, 1, NUM_NEURONS, num_classes], "VALID",
+        out = conv_layer(dropout2, [1, 1, NUM_NEURONS, num_classes], "VALID",
                          is_training)
         # output: (BATCH_SIZE)x1x1xnum_classes if the input has been properly scaled
         # otherwise is a map
@@ -318,7 +329,7 @@ def export_model(num_classes, session_dir, input_checkpoint, model_filename):
     Args:
         num_classes: number of classes of the trained model
         session_dir: absolute path of the checkpoint folder
-        input_checkpoint: the name of the latest checkpoint (or the desidered checkpoint to restore).
+        input_checkpoint: the name of the latest checkpoint (the desidered checkpoint to restore).
                           will look into session_dir/input_checkpoint (eg: session_dir/model-0)
         model_filename: the name of the freezed model
     """
