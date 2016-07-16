@@ -59,6 +59,8 @@ def main(args):
         # sparse labels, pgnet output -> 20 possible values
         labels_ = tf.placeholder(tf.int64, [None])
 
+        predicted_labels = tf.argmax(logits, 1)
+
         top_1_op = tf.nn.in_top_k(logits, labels_, 1)
         top_5_op = tf.nn.in_top_k(logits, labels_, 5)
 
@@ -66,12 +68,15 @@ def main(args):
             args.test_ds, BATCH_SIZE, args.test_ds + "/ts.csv")
 
         # initialize all variables
+        """
         all_variables = set(tf.all_variables())
 
         # EXCEPT model variables (that has been marked as trainable)
         model_variables = set(tf.trainable_variables())
         init_op = tf.initialize_variables(list(all_variables -
                                                model_variables))
+        """
+        init_op = tf.initialize_all_variables()
 
         with tf.Session(config=tf.ConfigProto(
                 allow_soft_placement=True)) as sess:
@@ -93,14 +98,16 @@ def main(args):
                     image_batch, label_batch = sess.run(
                         [image_queue, label_queue])
 
-                    top_1, top_5 = sess.run([top_1_op, top_5_op],
-                                            feed_dict={
-                                                "images_:0": image_batch,
-                                                labels_: label_batch,
-                                            })
+                    top_1, top_5, pl = sess.run(
+                        [top_1_op, top_5_op, predicted_labels],
+                        feed_dict={
+                            "images_:0": image_batch,
+                            labels_: label_batch,
+                        })
                     count_top_1 += np.sum(top_1)
                     count_top_5 += np.sum(top_5)
                     processed += 1
+                    print(pl)
 
                     print(label_batch)
                     print(top_1, top_5)

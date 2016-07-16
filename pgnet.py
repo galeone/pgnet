@@ -25,6 +25,11 @@ import utils
 INPUT_SIDE = 184
 INPUT_DEPTH = 3
 
+# network constants
+DOWNSAMPLING_FACTOR = 8
+LAST_KERNEL_SIDE = 23
+CONV_STRIDE = 1
+
 # train constants
 BATCH_SIZE = 32
 LEARNING_RATE = 1e-5  # Initial learning rate.
@@ -60,7 +65,7 @@ def conv_layer(input_x, kernel_shape, padding, is_training=False):
         tf.add(
             tf.nn.conv2d(input_x,
                          kernels,
-                         strides=[1, 1, 1, 1],
+                         strides=[1, CONV_STRIDE, CONV_STRIDE, 1],
                          padding=padding),
             bias),
         name="out")
@@ -215,8 +220,10 @@ def get(image_, num_classes, keep_prob_=1.0, is_training=False):
     # fully convolutional layer
     # take the 23x23x512 input and project it to a 1x1xNUM_NEURONS dim space
     with tf.variable_scope("fc1"):
-        fc1 = conv_layer(pool3, [23, 23, num_kernels, NUM_NEURONS], "VALID",
-                         is_training)
+        fc1 = conv_layer(
+            pool3,
+            [LAST_KERNEL_SIDE, LAST_KERNEL_SIDE, num_kernels, NUM_NEURONS],
+            "VALID", is_training)
         # output: 1x1xNUM_NEURONS
         if is_training:
             dropout1 = tf.nn.dropout(fc1, keep_prob_, name="dropout")
