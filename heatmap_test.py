@@ -26,14 +26,14 @@ PASCAL_LABELS = ["aeroplane", "bicycle", "bird", "boat", "bottle", "bus",
                  "train", "tvmonitor"]
 
 # detection constants
-PATCH_SIDE = 184
+PATCH_SIDE = pgnet.INPUT_SIDE + pgnet.DOWNSAMPLING_FACTOR * 3
 NO_PATCHES_PER_SIDE = 4
 #eg: 768 -> 4 patch 192*192 -> each one produces a spatial map of 4x4x20 probabilities
 RESIZED_INPUT_SIDE = PATCH_SIDE * NO_PATCHES_PER_SIDE
 
 # trained pgnet constants
 BACKGROUND_CLASS = 20
-MIN_PROB = 0
+MIN_PROB = 0.4
 
 
 def batchify_image(image_path, image_type="jpg"):
@@ -123,16 +123,24 @@ def main(args):
 
         # (?, n, n, NUM_CLASSES) tensor
         logits = graph.get_tensor_by_name(pgnet.OUTPUT_TENSOR_NAME + ":0")
+        print(logits)
+        # each cell in coords (batch_position, i, j) -> is a probability vector
+        per_batch_probabilities = tf.nn.softmax(tf.reshape(logits,
+                                                           [-1, num_classes]))
+        # [tested positions, num_classes]
+        print(per_batch_probabilities)
+        #sys.exit(1)
 
         # array[0]=values, [1]=indices
-        top_k = tf.nn.top_k(logits, k=5)
+        top_k = tf.nn.top_k(per_batch_probabilities, k=5)
+        # each with shape [tested_positions, k]
+
+        original_image, batch = batchify_image(
+            tf.constant(args.image_path),
+            image_type=args.image_path.split('.')[-1])
 
         with tf.Session(config=tf.ConfigProto(
                 allow_soft_placement=True)) as sess:
-
-            original_image, batch = batchify_image(
-                tf.constant(args.image_path),
-                image_type=args.image_path.split('.')[-1])
 
             batchifyed_image = batch.eval()
 
@@ -140,13 +148,12 @@ def main(args):
             #    cv2.imshow(str(idx), img)
             #cv2.waitKey(0)
 
-            predictions_prob, top_values, top_indices, image = sess.run(
+            probability_map, top_values, top_indices, image = sess.run(
                 [logits, top_k[0], top_k[1], original_image],
                 feed_dict={
                     "images_:0": batchifyed_image
                 })
-            print("Predictions: ", predictions_prob.size,
-                  predictions_prob.shape)
+            print("Predictions: ", probability_map.size, probability_map.shape)
 
             # extract image (resized image) dimensions to get the scaling factor
             # respect to the original image
@@ -156,6 +163,7 @@ def main(args):
 
             print(original_scaling_factor_x, original_scaling_factor_y)
             print(top_values)
+            print(top_values.shape)
 
             # let's think to the net as a big net, with the last layer (before the FC
             # layers for classification) with a receptive field of
@@ -171,12 +179,15 @@ def main(args):
             coords = []
             # input image cooords are coords scaled up to the input image
             input_image_coords = defaultdict(list)
+            # convert probability map coordinates to reshaped coordinates
+            # (that contains the softmax probabilities): it's a counter.
+            probability_coords = 0
             for j in range(NO_PATCHES_PER_SIDE):
                 for i in range(NO_PATCHES_PER_SIDE):
-                    for pmap_y in range(predictions_prob.shape[1]):
+                    for pmap_y in range(probability_map.shape[1]):
                         # calculate position in the downsampled image ds
                         ds_y = pmap_y * pgnet.CONV_STRIDE
-                        for pmap_x in range(predictions_prob.shape[2]):
+                        for pmap_x in range(probability_map.shape[2]):
                             ds_x = pmap_x * pgnet.CONV_STRIDE
 
                             # convert to numpy array in order to use broadcast ops
@@ -189,12 +200,14 @@ def main(args):
                             # if something is found, append rectagle to the 
                             # map of rectalges per class
                             print(coord)
-                            if top_values[batch_id][pmap_y][pmap_x][
-                                    0] > MIN_PROB and top_indices[batch_id][
-                                        pmap_y][pmap_x][0] != BACKGROUND_CLASS:
+
+                            if top_values[probability_coords][
+                                    0] > MIN_PROB and top_indices[
+                                        probability_coords][
+                                            0] != BACKGROUND_CLASS:
 
                                 top_1_label = PASCAL_LABELS[top_indices[
-                                    batch_id][pmap_y][pmap_x][0]]
+                                    probability_coords][0]]
 
                                 print(coord[1:])
 
@@ -224,11 +237,13 @@ def main(args):
                                 # [ [rect], probability]
                                 input_image_coords[top_1_label].append(
                                     [cv_rect,
-                                     top_values[batch_id][pmap_y][pmap_x][0]])
+                                     top_values[probability_coords][0]])
+                            # update probability coord value
+                            probability_coords += 1
 
                     batch_id += 1
 
-            print(batch_id)
+            print(batch_id, probability_coords)
             for label, rect_prob_list in input_image_coords.items():
                 #rect_list, _ = cv2.groupRectangles(
                 #    np.array(value[0]).tolist(), 1)
@@ -249,7 +264,7 @@ def main(args):
                                 0,
                                 1,
                                 color,
-                                thickness=1)
+                                thickness=2)
             cv2.imshow("img", image)
             cv2.waitKey(0)
 
