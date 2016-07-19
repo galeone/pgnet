@@ -62,21 +62,18 @@ def test(pascifar_path, batch_size, csv_path=os.path.abspath(os.getcwd())):
         filenames: file names. [batch_size] tensor with the fileneme read. (without extension)
     """
 
-    pascifar_path = tf.constant(os.path.abspath(os.path.expanduser(
-        pascifar_path)).rstrip("/") + "/")
+    pascifar_path = tf.constant(
+        os.path.abspath(os.path.expanduser(pascifar_path)).rstrip("/") + "/")
 
     # read every line in the file, only once
-    queue = tf.train.string_input_producer([csv_path],
-                                           num_epochs=1,
-                                           shuffle=False,
-                                           name="pascifar_queue")
+    queue = tf.train.string_input_producer(
+        [csv_path], num_epochs=1, shuffle=False, name="pascifar_queue")
 
     image_path, label = read_pascifar(pascifar_path, queue)
 
     # read image
-    image = image_processing.eval_image(image_path,
-                                        pgnet.INPUT_SIDE,
-                                        image_type="png")
+    image = image_processing.eval_image(
+        image_path, pgnet.INPUT_SIDE, image_type="png")
 
     # create a batch of images & filenames
     # (using a queue runner, that extracts image from the queue)

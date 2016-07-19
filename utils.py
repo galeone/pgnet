@@ -65,10 +65,10 @@ def kernels(shape,
             num_kernels = shape[3]
             depth = shape[2]
             max_images = int(num_kernels / depth)
-            tf.image_summary(name,
-                             tf.reshape(w, [num_kernels, shape[0], shape[1],
-                                            depth]),
-                             max_images=max_images)
+            tf.image_summary(
+                name,
+                tf.reshape(w, [num_kernels, shape[0], shape[1], depth]),
+                max_images=max_images)
     return w
 
 
@@ -76,9 +76,8 @@ def bias(shape, name, init_val=0.0):
     """ bias returns a tensor with the requested shape, initialized with init_val.
     Creates summaries too.
     Returns the bias"""
-    b = tf.get_variable(name,
-                        shape,
-                        initializer=tf.constant_initializer(init_val))
+    b = tf.get_variable(
+        name, shape, initializer=tf.constant_initializer(init_val))
     _ = log_histogram(b, b.name)
     return b
 
@@ -175,9 +174,8 @@ def padder(input_v, output_v):
     # every image in the batch have the depth reduced from X to 1 (collpased depth)
     # this single depth is the sum of every depth of the image
     # Or of every depth of the general input volume.
-    input_collapsed = tf.reduce_mean(input_v,
-                                     reduction_indices=[3],
-                                     keep_dims=True)
+    input_collapsed = tf.reduce_mean(
+        input_v, reduction_indices=[3], keep_dims=True)
 
     # lets make the input depth equal to the output depth
     input_expanded = input_collapsed

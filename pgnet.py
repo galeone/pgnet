@@ -62,12 +62,12 @@ def conv_layer(input_x, kernel_shape, padding, is_training=False):
     bias = utils.bias([num_kernels], "bias")
 
     out = tf.nn.relu(
-        tf.add(
-            tf.nn.conv2d(input_x,
-                         kernels,
-                         strides=[1, CONV_STRIDE, CONV_STRIDE, 1],
-                         padding=padding),
-            bias),
+        tf.add(tf.nn.conv2d(
+            input_x,
+            kernels,
+            strides=[1, CONV_STRIDE, CONV_STRIDE, 1],
+            padding=padding),
+               bias),
         name="out")
     return out
 
@@ -149,20 +149,15 @@ def get(image_, num_classes, keep_prob_=1.0, is_training=False):
     # of at least 184x184 (max value² of the average dimensions of the cropped pascal dataset)
     with tf.variable_scope("block1"):
         num_kernels = 2**5
-        block1 = block(image_,
-                       kernel_side,
-                       num_kernels,
-                       exp=2,
-                       is_training=is_training)
+        block1 = block(
+            image_, kernel_side, num_kernels, exp=2, is_training=is_training)
         num_kernels *= 2
     #output: 184x184x64
     print(block1)
 
     with tf.variable_scope("pool1"):
-        pool1 = tf.nn.max_pool(block1,
-                               ksize=[1, 2, 2, 1],
-                               strides=[1, 2, 2, 1],
-                               padding="VALID")
+        pool1 = tf.nn.max_pool(
+            block1, ksize=[1, 2, 2, 1], strides=[1, 2, 2, 1], padding="VALID")
     #output: 92x92x64
     print(pool1)
 
@@ -179,11 +174,8 @@ def get(image_, num_classes, keep_prob_=1.0, is_training=False):
     # repeat the l1, using pool1 as input. Do not incrase the number of learned filter
     # Preserve input depth
     with tf.variable_scope("block2"):
-        block2 = block(pool1,
-                       kernel_side,
-                       num_kernels,
-                       exp=2,
-                       is_training=is_training)
+        block2 = block(
+            pool1, kernel_side, num_kernels, exp=2, is_training=is_training)
         num_kernels *= 2
         #output: 92x92x128
         print(block2)
@@ -191,29 +183,22 @@ def get(image_, num_classes, keep_prob_=1.0, is_training=False):
     # reduce 2 times the input volume
     # 92/2 = 46
     with tf.variable_scope("pool2"):
-        pool2 = tf.nn.max_pool(block2,
-                               ksize=[1, 2, 2, 1],
-                               strides=[1, 2, 2, 1],
-                               padding="VALID")
+        pool2 = tf.nn.max_pool(
+            block2, ksize=[1, 2, 2, 1], strides=[1, 2, 2, 1], padding="VALID")
     #output: 46x46x512
     print(pool2)
 
     with tf.variable_scope("block3"):
-        block3 = block(pool2,
-                       kernel_side,
-                       num_kernels,
-                       exp=2,
-                       is_training=is_training)
+        block3 = block(
+            pool2, kernel_side, num_kernels, exp=2, is_training=is_training)
         num_kernels *= 2
         #output: 46x46x512
         print(block3)
 
     # 46/2 = 23
     with tf.variable_scope("pool3"):
-        pool3 = tf.nn.max_pool(block3,
-                               ksize=[1, 2, 2, 1],
-                               strides=[1, 2, 2, 1],
-                               padding="VALID")
+        pool3 = tf.nn.max_pool(
+            block3, ksize=[1, 2, 2, 1], strides=[1, 2, 2, 1], padding="VALID")
         #output: 23x23x512
         print(pool3)
 
@@ -274,8 +259,8 @@ def loss(logits, labels):
         cross_entropy = tf.nn.sparse_softmax_cross_entropy_with_logits(
             logits, labels, name="cross_entropy_per_example")
 
-        mean_cross_entropy = tf.reduce_mean(cross_entropy,
-                                            name="mean_cross_entropy")
+        mean_cross_entropy = tf.reduce_mean(
+            cross_entropy, name="mean_cross_entropy")
         tf.scalar_summary("loss/mean_cross_entropy", mean_cross_entropy)
 
     return mean_cross_entropy
@@ -316,9 +301,10 @@ def define_model(num_classes, is_training):
     """
     # model dropout keep_prob placeholder
     keep_prob_ = tf.placeholder(tf.float32, name="keep_prob_")
-    images_ = tf.placeholder(tf.float32,
-                             shape=[None, INPUT_SIDE, INPUT_SIDE, INPUT_DEPTH],
-                             name="images_")
+    images_ = tf.placeholder(
+        tf.float32,
+        shape=[None, INPUT_SIDE, INPUT_SIDE, INPUT_DEPTH],
+        name="images_")
 
     # build a graph that computes the logits predictions from the images
     logits = get(images_, num_classes, keep_prob_, is_training=is_training)
@@ -356,15 +342,17 @@ def export_model(num_classes, session_dir, input_checkpoint, model_filename):
                 try:
                     saver.restore(sess, session_dir + "/" + input_checkpoint)
                 except ValueError:
-                    print("[E] Unable to restore from checkpoint",
-                          file=sys.stderr)
+                    print(
+                        "[E] Unable to restore from checkpoint",
+                        file=sys.stderr)
                     return -1
 
                 # save model skeleton (the empty graph, its definition)
-                tf.train.write_graph(graph.as_graph_def(),
-                                     session_dir,
-                                     "skeleton.pbtxt",
-                                     as_text=True)
+                tf.train.write_graph(
+                    graph.as_graph_def(),
+                    session_dir,
+                    "skeleton.pbtxt",
+                    as_text=True)
 
                 freeze_graph.freeze_graph(
                     session_dir + "/skeleton.pbtxt", "", False,

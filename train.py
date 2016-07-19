@@ -76,14 +76,12 @@ def train(args):
 
             with tf.device(args.device):  #GPU
                 # train global step
-                global_step = tf.Variable(0,
-                                          trainable=False,
-                                          name="global_step")
+                global_step = tf.Variable(
+                    0, trainable=False, name="global_step")
 
                 # model inputs, used in train and validation
-                labels_ = tf.placeholder(tf.int64,
-                                         shape=[None],
-                                         name="labels_")
+                labels_ = tf.placeholder(
+                    tf.int64, shape=[None], name="labels_")
 
                 keep_prob_, images_, logits = pgnet.define_model(
                     num_classes, is_training=True)
@@ -113,8 +111,7 @@ def train(args):
                 correct_predictions = tf.equal(labels_, predictions)
 
                 accuracy = tf.reduce_mean(
-                    tf.cast(correct_predictions, tf.float32),
-                    name="accuracy")
+                    tf.cast(correct_predictions, tf.float32), name="accuracy")
 
                 # use a separate summary op for the accuracy (that's shared between test
                 # and validation)
@@ -171,8 +168,8 @@ def train(args):
                 else:
                     print("[I] Unable to restore from checkpoint")
 
-                summary_writer = tf.train.SummaryWriter(SUMMARY_DIR + "/train",
-                                                        graph=sess.graph)
+                summary_writer = tf.train.SummaryWriter(
+                    SUMMARY_DIR + "/train", graph=sess.graph)
 
                 total_start = time.time()
                 current_epoch = 0
@@ -194,12 +191,12 @@ def train(args):
                     duration = time.time() - start
 
                     # save summary for current step
-                    summary_writer.add_summary(summary_line,
-                                               global_step=gs_value)
+                    summary_writer.add_summary(
+                        summary_line, global_step=gs_value)
 
                     if np.isnan(loss_val):
-                        print('Model diverged with loss = NaN',
-                              file=sys.stderr)
+                        print(
+                            'Model diverged with loss = NaN', file=sys.stderr)
                         # print reshaped logits value for debug purposes
                         print(
                             sess.run(reshaped_logits,
@@ -223,8 +220,8 @@ def train(args):
                     if step % MEASUREMENT_STEP == 0 and step > 0:
                         validation_accuracy, summary_line = validate()
                         # save summary for validation_accuracy
-                        summary_writer.add_summary(summary_line,
-                                                   global_step=gs_value)
+                        summary_writer.add_summary(
+                            summary_line, global_step=gs_value)
 
                         # test accuracy
                         test_accuracy, summary_line = sess.run(
@@ -237,8 +234,8 @@ def train(args):
                             })
 
                         # save summary for training accuracy
-                        summary_writer.add_summary(summary_line,
-                                                   global_step=gs_value)
+                        summary_writer.add_summary(
+                            summary_line, global_step=gs_value)
 
                         print(
                             "{} step: {} validation accuracy: {} training accuracy: {}".format(

@@ -21,30 +21,22 @@ def resize_image_with_crop_or_pad(image, target_height, target_width):
     half = tf.constant(2)
 
     offset_crop_width = tf.python.control_flow_ops.cond(
-        tf.less(
-            target_width,
-            original_width),
+        tf.less(target_width, original_width),
         lambda: tf.floordiv(tf.sub(original_width, target_width), half),
         lambda: zero)
 
     offset_pad_width = tf.python.control_flow_ops.cond(
-        tf.greater(
-            target_width,
-            original_width),
+        tf.greater(target_width, original_width),
         lambda: tf.floordiv(tf.sub(target_width, original_width), half),
         lambda: zero)
 
     offset_crop_height = tf.python.control_flow_ops.cond(
-        tf.less(
-            target_height,
-            original_height),
+        tf.less(target_height, original_height),
         lambda: tf.floordiv(tf.sub(original_height, target_height), half),
         lambda: zero)
 
     offset_pad_height = tf.python.control_flow_ops.cond(
-        tf.greater(
-            target_height,
-            original_height),
+        tf.greater(target_height, original_height),
         lambda: tf.floordiv(tf.sub(target_height, original_height), half),
         lambda: zero)
 

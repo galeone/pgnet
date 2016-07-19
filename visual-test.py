@@ -45,12 +45,12 @@ def atrous_layer(x, atrous_kernel_shape, rate, padding):
     # Thus the perception filed of every filter is 5x5xd (rate=2), but the number of parameters is 3x3xd
     # 5 = (filter_h) + (filter_h -1)*(rate -1)
     return tf.nn.relu(
-        tf.add(
-            tf.nn.atrous_conv2d(x,
-                                kernels,
-                                rate=rate, # rate = 2 means 1 hole
-                                padding=padding),
-            bias),
+        tf.add(tf.nn.atrous_conv2d(
+            x,
+            kernels,
+            rate=rate,  # rate = 2 means 1 hole
+            padding=padding),
+               bias),
         name="out")
 
 
@@ -87,21 +87,20 @@ def eq_conv(x, atrous_kernel_side, num_kernels, rate, padding=False):
 
         # convolve padded input with learned filters.
         # using the padded input we can handle border pixesl
-        conv_contribution = atrous_layer(input_padded,
-                                         atrous_kernel_shape,
-                                         rate,
-                                         padding="VALID")
+        conv_contribution = atrous_layer(
+            input_padded, atrous_kernel_shape, rate, padding="VALID")
         print(conv_contribution)
 
         # lets make the pixels contribut equally, using average pooling
         # with a stride of 1 and a ksize equals to the kernel size in order
         # to reside the contribution output to the original convolution size
         # eg: the result of a convolution without the input padded
-        eq = tf.nn.avg_pool(conv_contribution,
-                            ksize=[1, real_kernel_side, real_kernel_side, 1],
-                            strides=[1, 1, 1, 1],
-                            padding="VALID",
-                            name="eq")
+        eq = tf.nn.avg_pool(
+            conv_contribution,
+            ksize=[1, real_kernel_side, real_kernel_side, 1],
+            strides=[1, 1, 1, 1],
+            padding="VALID",
+            name="eq")
         print(eq)
 
         if padding:

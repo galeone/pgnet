@@ -26,14 +26,14 @@ PASCAL_LABELS = ["aeroplane", "bicycle", "bird", "boat", "bottle", "bus",
                  "train", "tvmonitor"]
 
 # detection constants
-PATCH_SIDE = pgnet.INPUT_SIDE + pgnet.DOWNSAMPLING_FACTOR * 3
+PATCH_SIDE = pgnet.INPUT_SIDE  # + pgnet.DOWNSAMPLING_FACTOR
 NO_PATCHES_PER_SIDE = 4
 #eg: 768 -> 4 patch 192*192 -> each one produces a spatial map of 4x4x20 probabilities
 RESIZED_INPUT_SIDE = PATCH_SIDE * NO_PATCHES_PER_SIDE
 
 # trained pgnet constants
 BACKGROUND_CLASS = 20
-MIN_PROB = 0.4
+MIN_PROB = 0.6
 
 
 def batchify_image(image_path, image_type="jpg"):
@@ -83,10 +83,16 @@ def batchify_image(image_path, image_type="jpg"):
     print(patches_a)
     normalized_patches = []
     for patch in patches_a:
-        patch_as_input_image = image_processing.zm_mp(tf.reshape(
-            tf.squeeze(patch, [0]), [PATCH_SIDE, PATCH_SIDE, 3]))
+        patch_as_input_image = image_processing.zm_mp(
+            tf.reshape(tf.squeeze(patch, [0]), [PATCH_SIDE, PATCH_SIDE, 3]))
         print(patch_as_input_image)
         normalized_patches.append(patch_as_input_image)
+
+    # the last patch is not a "patch" but the whole image resized to PATCH_SIDE² x 3
+    # to give a glance to the whole image, in parallel with the patch analysis
+    normalized_patches.append(
+        image_processing.zm_mp(
+            image_processing.resize_bl(original_image, PATCH_SIDE)))
     batch_of_patches = tf.pack(normalized_patches)
     return tf.image.convert_image_dtype(original_image,
                                         tf.uint8), batch_of_patches
@@ -125,8 +131,8 @@ def main(args):
         logits = graph.get_tensor_by_name(pgnet.OUTPUT_TENSOR_NAME + ":0")
         print(logits)
         # each cell in coords (batch_position, i, j) -> is a probability vector
-        per_batch_probabilities = tf.nn.softmax(tf.reshape(logits,
-                                                           [-1, num_classes]))
+        per_batch_probabilities = tf.nn.softmax(
+            tf.reshape(logits, [-1, num_classes]))
         # [tested positions, num_classes]
         print(per_batch_probabilities)
         #sys.exit(1)
@@ -244,6 +250,9 @@ def main(args):
                     batch_id += 1
 
             print(batch_id, probability_coords)
+            # whole image, resized
+            print(PASCAL_LABELS[top_indices[probability_coords][0]],
+                  top_values[probability_coords][0])
             for label, rect_prob_list in input_image_coords.items():
                 #rect_list, _ = cv2.groupRectangles(
                 #    np.array(value[0]).tolist(), 1)
@@ -259,12 +268,13 @@ def main(args):
                     cv2.rectangle(image, (rect[0], rect[1]),
                                   (rect[2], rect[3]), color, 2)
                     print(label, rect, prob)
-                    cv2.putText(image,
-                                label, (rect[0] + 10, rect[1] + 10),
-                                0,
-                                1,
-                                color,
-                                thickness=2)
+                    cv2.putText(
+                        image,
+                        label, (rect[0] + 10, rect[1] + 10),
+                        0,
+                        1,
+                        color,
+                        thickness=2)
             cv2.imshow("img", image)
             cv2.waitKey(0)
 

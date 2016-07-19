@@ -42,9 +42,8 @@ def read_cropped_pascal(cropped_dataset_path, queue):
     # file,width,height,label
     record_defaults = [[""], [0], [0], [0]]
 
-    image_path, width, height, label = tf.decode_csv(row,
-                                                     record_defaults,
-                                                     field_delim=",")
+    image_path, width, height, label = tf.decode_csv(
+        row, record_defaults, field_delim=",")
 
     image_path = cropped_dataset_path + tf.constant("/") + image_path
     label = tf.cast(label, tf.int64)
@@ -105,8 +104,8 @@ def train(cropped_dataset_path,
         images: Images. 4D tensor of [batch_size, pgnet.INPUT_SIDE, pgnet.INPUT_SIDE, DEPTH size.
         labes: Labels. 1D tensor of [batch_size] size.
     """
-    cropped_dataset_path = os.path.abspath(os.path.expanduser(
-        cropped_dataset_path)).rstrip("/") + "/"
+    cropped_dataset_path = os.path.abspath(
+        os.path.expanduser(cropped_dataset_path)).rstrip("/") + "/"
     csv_path = csv_path.rstrip("/") + "/"
 
     # Create a queue that produces the filenames (and other atrributes) to read
@@ -119,11 +118,8 @@ def train(cropped_dataset_path,
     # read the image and cast it to float32
     # apply random distortions and resize image to:
     # pgnet.INPUT_SIDE x pgnet.INPUT_SIDE x pgnet.INPUT_DEPTH
-    distorted_image = image_processing.train_image(image_path,
-                                                   widht,
-                                                   height,
-                                                   pgnet.INPUT_SIDE,
-                                                   image_type="jpg")
+    distorted_image = image_processing.train_image(
+        image_path, widht, height, pgnet.INPUT_SIDE, image_type="jpg")
 
     # Ensure that the random shuffling has good mixing properties.
     fraction_of_examples_in_queue = 0.8
@@ -133,11 +129,8 @@ def train(cropped_dataset_path,
     print(
         'Filling queue with {} pascal cropped images before starting to train. '
         'This will take a few....'.format(min_queue_examples))
-    return _generate_image_and_label_batch(distorted_image,
-                                           label,
-                                           min_queue_examples,
-                                           batch_size,
-                                           task='train')
+    return _generate_image_and_label_batch(
+        distorted_image, label, min_queue_examples, batch_size, task='train')
 
 
 def validation(cropped_dataset_path,
@@ -154,8 +147,8 @@ def validation(cropped_dataset_path,
         labes: Labels. 1D tensor of [batch_size] size.
     """
 
-    cropped_dataset_path = os.path.abspath(os.path.expanduser(
-        cropped_dataset_path)).rstrip("/") + "/"
+    cropped_dataset_path = os.path.abspath(
+        os.path.expanduser(cropped_dataset_path)).rstrip("/") + "/"
     csv_path = csv_path.rstrip("/") + "/"
 
     queue = tf.train.string_input_producer([csv_path + "validation.csv"])
@@ -165,9 +158,8 @@ def validation(cropped_dataset_path,
         tf.constant(cropped_dataset_path), queue)
 
     # read and resize image
-    image = image_processing.eval_image(image_path,
-                                        pgnet.INPUT_SIDE,
-                                        image_type="jpg")
+    image = image_processing.eval_image(
+        image_path, pgnet.INPUT_SIDE, image_type="jpg")
 
     # Ensure that the random shuffling has good mixing properties.
     fraction_of_examples_in_queue = 0.8
@@ -181,11 +173,8 @@ def validation(cropped_dataset_path,
     #   determines the maximum we will prefetch.  Recommendation:
     #   min_after_dequeue + (num_threads + a small safety margin) * batch_size
     # Generate a batch of images and labels by building up a queue of examples.
-    return _generate_image_and_label_batch(image,
-                                           label,
-                                           min_queue_examples,
-                                           batch_size,
-                                           task='validation')
+    return _generate_image_and_label_batch(
+        image, label, min_queue_examples, batch_size, task='validation')
 
 
 def test(test_dataset_path,
@@ -208,9 +197,8 @@ def test(test_dataset_path,
         test_dataset_path)).rstrip("/") + "/"
 
     # read every line in the file, only once
-    queue = tf.train.string_input_producer([file_list_path],
-                                           num_epochs=1,
-                                           shuffle=False)
+    queue = tf.train.string_input_producer(
+        [file_list_path], num_epochs=1, shuffle=False)
 
     # Reader for text lines
     reader = tf.TextLineReader()

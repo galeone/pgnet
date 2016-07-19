@@ -79,35 +79,29 @@ def distort_image(image, input_width, input_height, output_side):
     # randomize the order of the random distortions
     def fn1():
         """Applies random brightness, saturation, hue, contrast"""
-        distorted_image = tf.image.random_brightness(flipped_image,
-                                                     max_delta=0.4)
-        distorted_image = tf.image.random_saturation(distorted_image,
-                                                     lower=0.1,
-                                                     upper=0.3)
+        distorted_image = tf.image.random_brightness(
+            flipped_image, max_delta=0.4)
+        distorted_image = tf.image.random_saturation(
+            distorted_image, lower=0.1, upper=0.3)
         distorted_image = tf.image.random_hue(distorted_image, max_delta=0.1)
-        distorted_image = tf.image.random_contrast(distorted_image,
-                                                   lower=0.1,
-                                                   upper=0.3)
+        distorted_image = tf.image.random_contrast(
+            distorted_image, lower=0.1, upper=0.3)
         return distorted_image
 
     def fn2():
         """Applies random brightness, contrast, saturation, hue"""
-        distorted_image = tf.image.random_brightness(flipped_image,
-                                                     max_delta=0.4)
-        distorted_image = tf.image.random_contrast(distorted_image,
-                                                   lower=0.1,
-                                                   upper=0.3)
-        distorted_image = tf.image.random_saturation(distorted_image,
-                                                     lower=0.1,
-                                                     upper=0.3)
+        distorted_image = tf.image.random_brightness(
+            flipped_image, max_delta=0.4)
+        distorted_image = tf.image.random_contrast(
+            distorted_image, lower=0.1, upper=0.3)
+        distorted_image = tf.image.random_saturation(
+            distorted_image, lower=0.1, upper=0.3)
         distorted_image = tf.image.random_hue(distorted_image, max_delta=0.1)
 
         return distorted_image
 
-    p_order = tf.random_uniform(shape=[],
-                                minval=0.0,
-                                maxval=1.0,
-                                dtype=tf.float32)
+    p_order = tf.random_uniform(
+        shape=[], minval=0.0, maxval=1.0, dtype=tf.float32)
     distorted_image = tf.cond(tf.less(p_order, 0.5), fn1, fn2)
     distorted_image = tf.clip_by_value(distorted_image, 0.0, 1.0)
     return distorted_image
