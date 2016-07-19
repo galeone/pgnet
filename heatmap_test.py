@@ -26,7 +26,7 @@ PASCAL_LABELS = ["aeroplane", "bicycle", "bird", "boat", "bottle", "bus",
                  "train", "tvmonitor"]
 
 # detection constants
-PATCH_SIDE = pgnet.INPUT_SIDE  # + pgnet.DOWNSAMPLING_FACTOR
+PATCH_SIDE = pgnet.INPUT_SIDE + pgnet.DOWNSAMPLING_FACTOR
 NO_PATCHES_PER_SIDE = 4
 #eg: 768 -> 4 patch 192*192 -> each one produces a spatial map of 4x4x20 probabilities
 RESIZED_INPUT_SIDE = PATCH_SIDE * NO_PATCHES_PER_SIDE
