@@ -5,7 +5,7 @@
 #file, you can obtain one at http://mozilla.org/MPL/2.0/.
 #Exhibit B is not attached; this software is compatible with the
 #licenses expressed under Section 1.12 of the MPL v2.
-"""Usage: ./pascifar_test.py PASCIFAR
+"""Usage: ./pascifar_test.py --device <device> --test-ds pascifar_path
 Runs the trained model on the PASCIFAR dataset that is a classification dataset.
 Prints the accuracy for each class and the average accuracy.
 """

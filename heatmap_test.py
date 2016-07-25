@@ -36,68 +36,6 @@ BACKGROUND_CLASS = 20
 MIN_PROB = 0.6
 
 
-def batchify_image(image_path, image_type="jpg"):
-    """Return the original image as read from image_path and the image splitted as a batch tensor.
-    Args:
-        image_path: image path
-        image_type: image type
-    Returns:
-        original_image, patches
-        where original image is a tensor in the format [widht, height 3]
-        and patches is a tensor of processed images, ready to be classified, with size
-        [batch_size, w, h, 3]"""
-
-    if image_type == "jpg":
-        original_image = image_processing.read_image_jpg(image_path, 3)
-    else:
-        original_image = image_processing.read_image_png(image_path, 3)
-
-    resized_image = image_processing.resize_bl(original_image,
-                                               RESIZED_INPUT_SIDE)
-    """
-    # OK OK TODO: test if whitening every patch improves results
-    resized_image = image_processing.zm_mp(resized_image)
-    print(resized_image)
-
-    # extract 4 patches
-    resized_image = tf.expand_dims(resized_image, 0)
-    print(resized_image)
-    patches = tf.space_to_depth(resized_image, PATCH_SIDE)
-    print(patches)  #1,4,4,192*192*3
-    patches = tf.reshape(patches,
-                         [NO_PATCHES_PER_SIDE**2, PATCH_SIDE, PATCH_SIDE, 3])
-    print(patches)
-    #resized_image = image_processing.zm_mp(resized_image)
-    return tf.image.convert_image_dtype(original_image, tf.uint8), patches
-    
-    """
-    resized_image = tf.expand_dims(resized_image, 0)
-    patches = tf.space_to_depth(resized_image, PATCH_SIDE)
-    print(patches)
-    patches = tf.squeeze(patches, [0])  #4,4,192*192*3
-    print(patches)
-    patches = tf.reshape(patches,
-                         [NO_PATCHES_PER_SIDE**2, PATCH_SIDE, PATCH_SIDE, 3])
-    print(patches)
-    patches_a = tf.split(0, NO_PATCHES_PER_SIDE**2, patches)
-    print(patches_a)
-    normalized_patches = []
-    for patch in patches_a:
-        patch_as_input_image = image_processing.zm_mp(
-            tf.reshape(tf.squeeze(patch, [0]), [PATCH_SIDE, PATCH_SIDE, 3]))
-        print(patch_as_input_image)
-        normalized_patches.append(patch_as_input_image)
-
-    # the last patch is not a "patch" but the whole image resized to PATCH_SIDE² x 3
-    # to give a glance to the whole image, in parallel with the patch analysis
-    normalized_patches.append(
-        image_processing.zm_mp(
-            image_processing.resize_bl(original_image, PATCH_SIDE)))
-    batch_of_patches = tf.pack(normalized_patches)
-    return tf.image.convert_image_dtype(original_image,
-                                        tf.uint8), batch_of_patches
-
-
 def main(args):
     """ main """
 
@@ -141,8 +79,9 @@ def main(args):
         top_k = tf.nn.top_k(per_batch_probabilities, k=5)
         # each with shape [tested_positions, k]
 
-        original_image, batch = batchify_image(
+        original_image, batch = image_processing.read_and_batchify_image(
             tf.constant(args.image_path),
+            [NO_PATCHES_PER_SIDE**2, PATCH_SIDE, PATCH_SIDE, 3],
             image_type=args.image_path.split('.')[-1])
 
         with tf.Session(config=tf.ConfigProto(
