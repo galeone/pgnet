@@ -26,6 +26,15 @@ PASCAL_LABELS = ["aeroplane", "bicycle", "bird", "boat", "bottle", "bus",
                  "motorbike", "person", "pottedplant", "sheep", "sofa",
                  "train", "tvmonitor"]
 
+
+def rnd_color():
+    """ Generate random colors in RGB format"""
+    rnd = lambda: np.random.randint(0, 255)
+    return [rnd(), rnd(), rnd()]
+
+
+LABEL_COLORS = {label: rnd_color() for label in PASCAL_LABELS}
+
 # detection constants
 PATCH_SIDE = pgnet.INPUT_SIDE + pgnet.DOWNSAMPLING_FACTOR * 4
 NO_PATCHES_PER_SIDE = 4
@@ -34,7 +43,7 @@ RESIZED_INPUT_SIDE = PATCH_SIDE * NO_PATCHES_PER_SIDE
 
 # trained pgnet constants
 BACKGROUND_CLASS = 20
-MIN_PROB = 0.9
+MIN_GLOBAL_PROB = 0.9
 
 
 def upsample_and_shift(ds_coords, downsamplig_factor, shift_amount,
@@ -50,7 +59,7 @@ def upsample_and_shift(ds_coords, downsamplig_factor, shift_amount,
         scaling_factors: [along_x, along_y] float numbers. Ration between net input
             and original image
     Return:
-        the result of the previous described operations with shape: [x0, y0, x1, y1]
+        the result of the previous described operations as a tuple: (x0, y0, x1, y1)
     """
     scaling_factor_x = scaling_factors[0]
     scaling_factor_y = scaling_factors[1]
@@ -68,7 +77,25 @@ def upsample_and_shift(ds_coords, downsamplig_factor, shift_amount,
     # scale coordinates to the input image
     input_box = np.ceil(box * [scaling_factor_x, scaling_factor_y,
                                scaling_factor_x, scaling_factor_y]).astype(int)
-    return input_box  # [x0, y0, x1, y1]
+    return tuple(input_box)  # (x0, y0, x1, y1)
+
+
+def draw_box(image, rect, label, color):
+    """ Draw rect on image, writing label into rect and colors border and text with color"""
+    cv2.rectangle(image, (rect[0], rect[1]), (rect[2], rect[3]), color, 2)
+    cv2.putText(
+        image, label, (rect[0] + 20, rect[1] + 20), 0, 1, color, thickness=2)
+
+
+def intersect(a, b):
+    """Returns true of a intersects b"""
+    x = max(a[0], b[0])
+    y = max(a[1], b[1])
+    w = min(a[0] + a[2], b[0] + b[2]) - x
+    h = min(a[1] + a[3], b[1] + b[3]) - y
+    if w < 0 or h < 0:
+        return Flase
+    return True
 
 
 def main(args):
@@ -109,7 +136,7 @@ def main(args):
         print(per_batch_probabilities)
 
         # array[0]=values, [1]=indices
-        top_k = tf.nn.top_k(per_batch_probabilities, k=5)
+        top_k = tf.nn.top_k(per_batch_probabilities, k=3)
         # each with shape [tested_positions, k]
 
         original_image, batch = image_processing.read_and_batchify_image(
@@ -148,9 +175,11 @@ def main(args):
             # (that make the output side of contolution integer) the result is a spacial map
             # of points. Every point has a depth of num classes.
 
-            # save coordinates and batch id, format: [y1, x1, y2, x2]
-            # input image cooords are coords scaled up to the input image
-            input_image_coords = defaultdict(list)
+            # for every region in the original image, save its coordinates
+            # and store the top-k labels associated
+            # the following default dict can be used with tuples:
+            # (x0,y0,x1,y1) = [list, of, elements]
+            batch_to_input_image_coords = defaultdict(int)
             # convert probability map coordinates to reshaped coordinates
             # (that contains the softmax probabilities): it's a counter.
             probability_coords = 0
@@ -162,30 +191,29 @@ def main(args):
                         for pmap_x in range(probability_map.shape[2]):
                             ds_x = pmap_x * pgnet.CONV_STRIDE
 
-                            if top_values[probability_coords][
-                                    0] > MIN_PROB and top_indices[
-                                        probability_coords][
-                                            0] != BACKGROUND_CLASS:
-
-                                top_1_label = PASCAL_LABELS[top_indices[
-                                    probability_coords][0]]
+                            # if is not background, no matter the probability
+                            if top_indices[probability_coords][
+                                    0] != BACKGROUND_CLASS:
 
                                 # create coordinates of rect in the downsampled image
-                                # convert to numpy array in order to use broadcast ops
-                                coord = [ds_x, ds_y,
-                                         ds_x + pgnet.LAST_KERNEL_SIDE,
-                                         ds_y + pgnet.LAST_KERNEL_SIDE]
-                                # if something is found, append rectagle to the
-                                # map of rectalges per class
-                                cv_rect = upsample_and_shift(
+                                coord = np.array(
+                                    [ds_x, ds_y, ds_x + pgnet.LAST_KERNEL_SIDE,
+                                     ds_y + pgnet.LAST_KERNEL_SIDE])
+
+                                # get the input coordinates
+                                input_box = upsample_and_shift(
                                     coord, pgnet.DOWNSAMPLING_FACTOR,
                                     [PATCH_SIDE * i, PATCH_SIDE * j],
                                     scaling_factors)
-                                # save the probability associated to the rect
-                                # [ [rect], probability]
-                                input_image_coords[top_1_label].append(
-                                    [cv_rect,
-                                     top_values[probability_coords][0]])
+
+                                # save top{1,2,3} label for the current region. Format: x[(coords)] = [label, prob]
+                                batch_to_input_image_coords[input_box] = [
+                                    [
+                                        PASCAL_LABELS[top_indices[
+                                            probability_coords][top_k]],
+                                        top_values[probability_coords][top_k]
+                                    ] for top_k in range(3)
+                                ]
 
                             # update probability coord value
                             probability_coords += 1
@@ -206,17 +234,17 @@ def main(args):
             # new scaling factor between original image and resized image (not only to a patch)
             scaling_factors = np.array(
                 [image.shape[1] / PATCH_SIDE, image.shape[0] / PATCH_SIDE])
+            # save the global glance in a separate dict
+            resized_to_input_image_coords = defaultdict(list)
             for pmap_y in range(probability_map.shape[1]):
                 # calculate position in the downsampled image ds
                 ds_y = pmap_y * pgnet.CONV_STRIDE
                 for pmap_x in range(probability_map.shape[2]):
                     ds_x = pmap_x * pgnet.CONV_STRIDE
 
-                    # TODO: merge global predictions with local predictions
-                    # evaluate not only the first class (?)
                     if top_values[probability_coords][
-                            0] > MIN_PROB and top_indices[probability_coords][
-                                0] != BACKGROUND_CLASS:
+                            0] > MIN_GLOBAL_PROB and top_indices[
+                                probability_coords][0] != BACKGROUND_CLASS:
 
                         top_1_label = PASCAL_LABELS[top_indices[
                             probability_coords][0]]
@@ -232,37 +260,75 @@ def main(args):
                                                      [0, 0], scaling_factors)
                         # save the probability associated to the rect
                         # [ [rect], probability]
-                        rect_prob = [cv_rect, top_values[probability_coords][0]
-                                     ]
+                        rect_prob = [cv_rect,
+                                     top_values[probability_coords][0]]
                         print('Glance: {} ({})'.format(rect_prob, top_1_label))
-                        input_image_coords[top_1_label].append(rect_prob)
+                        resized_to_input_image_coords[top_1_label].append(
+                            rect_prob)
 
                     # update probability coord value
                     probability_coords += 1
 
-            for label, rect_prob_list in input_image_coords.items():
-                #rect_list, _ = cv2.groupRectangles(
-                #    np.array(value[0]).tolist(), 1)
+            # if the global glances resulted in one single class
+            # there's an high probability that the image contains 1 element in forground
+            # so, discard local regions and use only the detected global regions
+            num_glance_classes = len(resized_to_input_image_coords)
+            if num_glance_classes == 1:
+                for label, rect_prob_list in resized_to_input_image_coords.items(
+                ):
+                    # extract rectangles from the array of pairs
+                    rects_only = [value[0] for value in rect_prob_list]
+                    avg_prob = sum(
+                        [value[1]
+                         for value in rect_prob_list]) / len(rect_prob_list)
+                    rect_list, _ = cv2.groupRectangles(
+                        np.array(rects_only).tolist(), 1)
+                    for rect in rect_list:
+                        draw_box(image, rect, label + " " + str(avg_prob),
+                                 LABEL_COLORS[label])
+            else:
+                # exploit global glance to increase the probability of local regions
+                # that are under a global region, with the same class.
+                # Let's look not only at the top-1 label, but down to the top-3.
+                # If in the top-3 label of the local regions, we find the global label
+                # that's convering the regions, replace the top label with the global label.
+                # Than, create a region of adiacent boxes
+                for global_label, global_rect_prob_list in resized_to_input_image_coords.items(
+                ):
+                    # extract rectangles from the array of pairs
+                    rects_only = [value[0] for value in global_rect_prob_list]
+                    global_rect_list, _ = cv2.groupRectangles(
+                        np.array(rects_only).tolist(), 1)
 
-                # associate a color with a label
-                rnd = lambda: np.random.randint(0, 255)
-                color = [rnd(), rnd(), rnd()]
+                    # global rect has the coordinates of the global rectangle
+                    for global_rect in global_rect_list:
+                        for local_rect, local_labels_prob in batch_to_input_image_coords.items(
+                        ):
+                            # if there's intersection among global and local rect
+                            if intersect(global_rect, local_rect):
+                                # if the global label is in the top-k labels of the regions
+                                local_labels_only = [
+                                    value[0] for value in local_labels_prob
+                                ]
+                                print('looking for {} in {}'.format(
+                                    global_label, local_labels_only))
+                                if global_label in local_labels_only:
+                                    # set the top label to be the global label
+                                    # 0 = rect position in the pair <label, prob>
+                                    # [ 0 = label list, 1 prob for label]
+                                    print('replaced {} with {}'.format(
+                                        batch_to_input_image_coords[
+                                            local_rect][0][0], global_label))
+                                    batch_to_input_image_coords[local_rect][0][
+                                        0] = global_label
 
-                for rect_prob in rect_prob_list:
-                    rect = rect_prob[0]
-                    prob = rect_prob[1]
-
-                    cv2.rectangle(image, (rect[0], rect[1]),
-                                  (rect[2], rect[3]), color, 2)
-                    print(label, rect, prob)
-                    cv2.putText(
-                        image,
-                        label, (rect[0] + 10, rect[1] + 10),
-                        0,
-                        1,
-                        color,
-                        thickness=2)
-
+                # draw top-1 only
+                for local_rect, local_labels in batch_to_input_image_coords.items(
+                ):
+                    top_1_label = local_labels[0][0]
+                    print(local_rect, top_1_label)
+                    draw_box(image, local_rect, top_1_label,
+                             LABEL_COLORS[top_1_label])
             nn_and_drawing_time = time.time() - start
             print("NN + drawing time: {}".format(nn_and_drawing_time))
             cv2.imshow("img", image)
