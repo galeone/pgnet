@@ -10,6 +10,7 @@
 import argparse
 import os
 import sys
+import time
 from collections import defaultdict
 import tensorflow as tf
 import cv2
@@ -26,14 +27,48 @@ PASCAL_LABELS = ["aeroplane", "bicycle", "bird", "boat", "bottle", "bus",
                  "train", "tvmonitor"]
 
 # detection constants
-PATCH_SIDE = pgnet.INPUT_SIDE + pgnet.DOWNSAMPLING_FACTOR
+PATCH_SIDE = pgnet.INPUT_SIDE + pgnet.DOWNSAMPLING_FACTOR * 4
 NO_PATCHES_PER_SIDE = 4
 #eg: 768 -> 4 patch 192*192 -> each one produces a spatial map of 4x4x20 probabilities
 RESIZED_INPUT_SIDE = PATCH_SIDE * NO_PATCHES_PER_SIDE
 
 # trained pgnet constants
 BACKGROUND_CLASS = 20
-MIN_PROB = 0.6
+MIN_PROB = 0.9
+
+
+def upsample_and_shift(ds_coords, downsamplig_factor, shift_amount,
+                       scaling_factors):
+    """Upsample ds_coords by downsampling factor, then
+    shift the upsampled coordinates by shift amount, then
+    resize the upsampled coordinates to the input image size, using the scaling factors.
+
+    Args:
+        ds_coords: downsampled coordinates [x0,y0, x1, y1]
+        downsampling_factor: the net downsample factor, used to upsample the coordinates
+        shift_amount: the quantity [2 coords] to add at each upsampled coordinate
+        scaling_factors: [along_x, along_y] float numbers. Ration between net input
+            and original image
+    Return:
+        the result of the previous described operations with shape: [x0, y0, x1, y1]
+    """
+    scaling_factor_x = scaling_factors[0]
+    scaling_factor_y = scaling_factors[1]
+    # create coordinates of rect in the downsampled image
+    # convert to numpy array in order to use broadcast ops
+    coord = np.array(ds_coords)
+
+    # upsample coordinates to find the coordinates of the cell
+    box = coord * downsamplig_factor
+
+    # shift coordinates to the position of the current cell
+    # in the resized input image
+    box += [shift_amount[0], shift_amount[1], shift_amount[0], shift_amount[1]]
+
+    # scale coordinates to the input image
+    input_box = np.ceil(box * [scaling_factor_x, scaling_factor_y,
+                               scaling_factor_x, scaling_factor_y]).astype(int)
+    return input_box  # [x0, y0, x1, y1]
 
 
 def main(args):
@@ -67,13 +102,11 @@ def main(args):
 
         # (?, n, n, NUM_CLASSES) tensor
         logits = graph.get_tensor_by_name(pgnet.OUTPUT_TENSOR_NAME + ":0")
-        print(logits)
         # each cell in coords (batch_position, i, j) -> is a probability vector
         per_batch_probabilities = tf.nn.softmax(
             tf.reshape(logits, [-1, num_classes]))
         # [tested positions, num_classes]
         print(per_batch_probabilities)
-        #sys.exit(1)
 
         # array[0]=values, [1]=indices
         top_k = tf.nn.top_k(per_batch_probabilities, k=5)
@@ -92,23 +125,19 @@ def main(args):
             #for idx, img in enumerate(batchifyed_image):
             #    cv2.imshow(str(idx), img)
             #cv2.waitKey(0)
-
+            start = time.time()
             probability_map, top_values, top_indices, image = sess.run(
                 [logits, top_k[0], top_k[1], original_image],
                 feed_dict={
                     "images_:0": batchifyed_image
                 })
-            print("Predictions: ", probability_map.size, probability_map.shape)
+            nn_time = time.time() - start
+            print("NN time: {}".format(nn_time))
 
             # extract image (resized image) dimensions to get the scaling factor
             # respect to the original image
-            print(image.shape)
-            original_scaling_factor_x = image.shape[0] / RESIZED_INPUT_SIDE
-            original_scaling_factor_y = image.shape[1] / RESIZED_INPUT_SIDE
-
-            print(original_scaling_factor_x, original_scaling_factor_y)
-            print(top_values)
-            print(top_values.shape)
+            scaling_factors = np.array([image.shape[1] / RESIZED_INPUT_SIDE,
+                                        image.shape[0] / RESIZED_INPUT_SIDE])
 
             # let's think to the net as a big net, with the last layer (before the FC
             # layers for classification) with a receptive field of
@@ -119,9 +148,7 @@ def main(args):
             # (that make the output side of contolution integer) the result is a spacial map
             # of points. Every point has a depth of num classes.
 
-            # save coordinates and batch id, format: [batch_id, y1, x1, y2, x2]
-            batch_id = 0
-            coords = []
+            # save coordinates and batch id, format: [y1, x1, y2, x2]
             # input image cooords are coords scaled up to the input image
             input_image_coords = defaultdict(list)
             # convert probability map coordinates to reshaped coordinates
@@ -135,17 +162,6 @@ def main(args):
                         for pmap_x in range(probability_map.shape[2]):
                             ds_x = pmap_x * pgnet.CONV_STRIDE
 
-                            # convert to numpy array in order to use broadcast ops
-                            # create coordinates of rect in the downsampled image
-                            coord = np.array([batch_id, ds_y, ds_x,
-                                              ds_y + pgnet.LAST_KERNEL_SIDE,
-                                              ds_x + pgnet.LAST_KERNEL_SIDE])
-                            coords.append(coord)
-
-                            # if something is found, append rectagle to the 
-                            # map of rectalges per class
-                            print(coord)
-
                             if top_values[probability_coords][
                                     0] > MIN_PROB and top_indices[
                                         probability_coords][
@@ -154,44 +170,76 @@ def main(args):
                                 top_1_label = PASCAL_LABELS[top_indices[
                                     probability_coords][0]]
 
-                                print(coord[1:])
-
-                                # upsample coordinates to find the coordinates of the cell
-                                box = coord[1:] * pgnet.DOWNSAMPLING_FACTOR
-                                print(box)
-
-                                # shift coordinates to the position of the current cell
-                                # in the resized input image
-                                box += [PATCH_SIDE * i, PATCH_SIDE * j,
-                                        PATCH_SIDE * i, PATCH_SIDE * j]
-                                print(box)
-
-                                # scale coordinates to the input image
-                                input_box = np.ceil(
-                                    box *
-                                    [original_scaling_factor_x,
-                                     original_scaling_factor_y,
-                                     original_scaling_factor_x,
-                                     original_scaling_factor_y]).astype(int)
-                                print(input_box)
-                                # convert tf rect format to opencv rect format
-                                #xmin, ymin, xmax, ymax
-                                cv_rect = [input_box[1], input_box[0],
-                                           input_box[3], input_box[2]]
+                                # create coordinates of rect in the downsampled image
+                                # convert to numpy array in order to use broadcast ops
+                                coord = [ds_x, ds_y,
+                                         ds_x + pgnet.LAST_KERNEL_SIDE,
+                                         ds_y + pgnet.LAST_KERNEL_SIDE]
+                                # if something is found, append rectagle to the
+                                # map of rectalges per class
+                                cv_rect = upsample_and_shift(
+                                    coord, pgnet.DOWNSAMPLING_FACTOR,
+                                    [PATCH_SIDE * i, PATCH_SIDE * j],
+                                    scaling_factors)
                                 # save the probability associated to the rect
                                 # [ [rect], probability]
                                 input_image_coords[top_1_label].append(
                                     [cv_rect,
                                      top_values[probability_coords][0]])
+
                             # update probability coord value
                             probability_coords += 1
 
-                    batch_id += 1
+            # we processed the local regions, lets look at the global regions
+            # of the whole image resized and analized
+            # as the last image in the batch.
+            # Here we give a glance to the image
 
-            print(batch_id, probability_coords)
-            # whole image, resized
-            print(PASCAL_LABELS[top_indices[probability_coords][0]],
-                  top_values[probability_coords][0])
+            # probability_coords can
+            # increase again by probability_map.shape[1] * probability_map.shape[2]
+            # = the location watched in the original, resized, image
+
+            # invert scaling factor, because they are the
+            # ratio of the original image and the downsampled image, but i need
+            # the ratio between the dowsampled image and the original image
+
+            # new scaling factor between original image and resized image (not only to a patch)
+            scaling_factors = np.array(
+                [image.shape[1] / PATCH_SIDE, image.shape[0] / PATCH_SIDE])
+            for pmap_y in range(probability_map.shape[1]):
+                # calculate position in the downsampled image ds
+                ds_y = pmap_y * pgnet.CONV_STRIDE
+                for pmap_x in range(probability_map.shape[2]):
+                    ds_x = pmap_x * pgnet.CONV_STRIDE
+
+                    # TODO: merge global predictions with local predictions
+                    # evaluate not only the first class (?)
+                    if top_values[probability_coords][
+                            0] > MIN_PROB and top_indices[probability_coords][
+                                0] != BACKGROUND_CLASS:
+
+                        top_1_label = PASCAL_LABELS[top_indices[
+                            probability_coords][0]]
+
+                        # create coordinates of rect in the downsampled image
+                        # convert to numpy array in order to use broadcast ops
+                        coord = [ds_x, ds_y, ds_x + pgnet.LAST_KERNEL_SIDE,
+                                 ds_y + pgnet.LAST_KERNEL_SIDE]
+                        # if something is found, append rectagle to the
+                        # map of rectalges per class
+                        cv_rect = upsample_and_shift(coord,
+                                                     pgnet.DOWNSAMPLING_FACTOR,
+                                                     [0, 0], scaling_factors)
+                        # save the probability associated to the rect
+                        # [ [rect], probability]
+                        rect_prob = [cv_rect, top_values[probability_coords][0]
+                                     ]
+                        print('Glance: {} ({})'.format(rect_prob, top_1_label))
+                        input_image_coords[top_1_label].append(rect_prob)
+
+                    # update probability coord value
+                    probability_coords += 1
+
             for label, rect_prob_list in input_image_coords.items():
                 #rect_list, _ = cv2.groupRectangles(
                 #    np.array(value[0]).tolist(), 1)
@@ -214,6 +262,9 @@ def main(args):
                         1,
                         color,
                         thickness=2)
+
+            nn_and_drawing_time = time.time() - start
+            print("NN + drawing time: {}".format(nn_and_drawing_time))
             cv2.imshow("img", image)
             cv2.waitKey(0)
 
