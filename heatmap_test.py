@@ -44,6 +44,7 @@ RESIZED_INPUT_SIDE = PATCH_SIDE * NO_PATCHES_PER_SIDE
 # trained pgnet constants
 BACKGROUND_CLASS = 20
 MIN_GLOBAL_PROB = 0.9
+MIN_LOCAL_PROB = 0.8
 
 
 def upsample_and_shift(ds_coords, downsamplig_factor, shift_amount,
@@ -191,9 +192,11 @@ def main(args):
                         for pmap_x in range(probability_map.shape[2]):
                             ds_x = pmap_x * pgnet.CONV_STRIDE
 
-                            # if is not background, no matter the probability
-                            if top_indices[probability_coords][
-                                    0] != BACKGROUND_CLASS:
+                            # if is not background and the has the right prob
+                            if top_values[probability_coords][
+                                    0] > MIN_LOCAL_PROB and top_indices[
+                                        probability_coords][
+                                            0] != BACKGROUND_CLASS:
 
                                 # create coordinates of rect in the downsampled image
                                 coord = np.array(
@@ -272,8 +275,10 @@ def main(args):
             # if the global glances resulted in one single class
             # there's an high probability that the image contains 1 element in forground
             # so, discard local regions and use only the detected global regions
+            # TODO: merge overlapping rectangles
             num_glance_classes = len(resized_to_input_image_coords)
             if num_glance_classes == 1:
+                print('Final labels')
                 for label, rect_prob_list in resized_to_input_image_coords.items(
                 ):
                     # extract rectangles from the array of pairs
@@ -284,6 +289,7 @@ def main(args):
                     rect_list, _ = cv2.groupRectangles(
                         np.array(rects_only).tolist(), 1)
                     for rect in rect_list:
+                        print(rect, label, avg_prob)
                         draw_box(image, rect, label + " " + str(avg_prob),
                                  LABEL_COLORS[label])
             else:
@@ -297,6 +303,9 @@ def main(args):
                 ):
                     # extract rectangles from the array of pairs
                     rects_only = [value[0] for value in global_rect_prob_list]
+                    avg_global_prob = sum(
+                        [value[1] for value in global_rect_prob_list]) / len(
+                            global_rect_prob_list)
                     global_rect_list, _ = cv2.groupRectangles(
                         np.array(rects_only).tolist(), 1)
 
@@ -314,21 +323,46 @@ def main(args):
                                     global_label, local_labels_only))
                                 if global_label in local_labels_only:
                                     # set the top label to be the global label
-                                    # 0 = rect position in the pair <label, prob>
-                                    # [ 0 = label list, 1 prob for label]
-                                    print('replaced {} with {}'.format(
+                                    # 0 -> top-1 pair
+                                    # [ 0 = label, 1 prob]
+                                    avg_prob = (batch_to_input_image_coords[
+                                        local_rect][0][1] + avg_global_prob
+                                                ) / 2
+                                    new_top_1_label_prob = [global_label,
+                                                            avg_prob]
+                                    print('replaced (top-1) {} with {}'.format(
                                         batch_to_input_image_coords[
-                                            local_rect][0][0], global_label))
-                                    batch_to_input_image_coords[local_rect][0][
-                                        0] = global_label
+                                            local_rect][
+                                                0], new_top_1_label_prob))
+                                    batch_to_input_image_coords[local_rect][
+                                        0] = new_top_1_label_prob
 
-                # draw top-1 only
-                for local_rect, local_labels in batch_to_input_image_coords.items(
+                # draw top-1 only, merge elements by class
+                glocal_regions = defaultdict(list)
+                for local_rect, local_labels_prob in batch_to_input_image_coords.items(
                 ):
-                    top_1_label = local_labels[0][0]
-                    print(local_rect, top_1_label)
-                    draw_box(image, local_rect, top_1_label,
-                             LABEL_COLORS[top_1_label])
+                    top_1_label = local_labels_prob[0][0]
+                    top_1_prob = local_labels_prob[0][1]
+                    if top_1_prob > MIN_GLOBAL_PROB:
+                        rect_prob = [local_rect, top_1_prob]
+                        glocal_regions[top_1_label].append(rect_prob)
+                        print(local_rect, top_1_label, top_1_prob)
+
+                # merge overlapping rectangles with same label
+                for label, rect_prob_list in glocal_regions.items():
+                    # extract rectangles from the array of pairs
+                    rects_only = [value[0] for value in rect_prob_list]
+                    avg_prob = sum(
+                        [value[1]
+                         for value in rect_prob_list]) / len(rect_prob_list)
+                    rect_list, _ = cv2.groupRectangles(
+                        np.array(rects_only).tolist(), 1)
+                    for rect in rect_list:
+                        draw_box(image, rect, label + " " + str(avg_prob),
+                                 LABEL_COLORS[label])
+
+                        print(rect, label, avg_prob)
+
             nn_and_drawing_time = time.time() - start
             print("NN + drawing time: {}".format(nn_and_drawing_time))
             cv2.imshow("img", image)
