@@ -13,6 +13,7 @@ import sys
 import time
 import math
 from collections import defaultdict
+import operator
 from statistics import mode, StatisticsError
 import tensorflow as tf
 import cv2
@@ -29,13 +30,10 @@ PASCAL_LABELS = ["aeroplane", "bicycle", "bird", "boat", "bottle", "bus",
                  "train", "tvmonitor"]
 
 # detection constants
-PATCH_SIDE = pgnet.INPUT_SIDE + pgnet.DOWNSAMPLING_FACTOR * 10
-NO_PATCHES_PER_SIDE = 4
-#eg: 768 -> 4 patch 192*192 -> each one produces a spatial map of 4x4x20 probabilities
-RESIZED_INPUT_SIDE = PATCH_SIDE * NO_PATCHES_PER_SIDE
-MIN_GLOBAL_PROB = 0.95
-MIN_LOCAL_PROB = 0.95
-MIN_GLOCAL_PROB = 0.6
+INPUT_SIDE = pgnet.INPUT_SIDE + pgnet.DOWNSAMPLING_FACTOR * 20
+OUTPUT_SIDE = INPUT_SIDE / pgnet.DOWNSAMPLING_FACTOR - pgnet.LAST_KERNEL_SIDE + 1
+LOOKED_POS = OUTPUT_SIDE**2
+MIN_PROB = 0.6
 TOP_K = 2
 
 # trained pgnet constants
@@ -143,39 +141,47 @@ def l2(p0, p1):
     return norm((p0[0] - p1[0], p0[1] - p1[1]))
 
 
-def group_overlapping_with_same_class(map_of_regions):
+def variance(set_of_values):
+    """Returns the mean and the variance of the set_of_values set"""
+    n = len(set_of_values)
+    sum_of_x = sum(set_of_values)
+    mu = sum_of_x / n
+    sigma = sum(x**2 for x in set_of_values) / n - mu
+    return mu, sigma
+
+
+def group_overlapping_with_same_class(map_of_regions, keep_singles=False):
     """merge overlapping rectangles with the same class
-    Merge only if there's overlapping between at leat 2 regions.
+    Merge if there's overlapping between at leat 2 regions if keep_singles=False
+    otherwise it keeps single rectangles.
     Args:
-        map_of_regions:  {"label": [[rect1, p1, rank], [rect2, p2, rank], ..], "label2"...}
+        map_of_regions:  {"label": [[rect1, p1], [rect2, p2], ..], "label2"...}
     """
     grouped_map = defaultdict(list)
     for label, rect_prob_list in map_of_regions.items():
         # extract rectangles from the array of pairs
         rects_only = np.array([value[0] for value in rect_prob_list])
         # group them
-        rect_list, _ = cv2.groupRectangles(rects_only.tolist(), 1, eps=0.5)
+        factor = 2 if keep_singles else 1
+        rect_list, _ = cv2.groupRectangles(
+            rects_only.tolist() * factor, 1, eps=0.99)
         # calculate probability of the grouped rectangles as the mean prob
-        merged_rect_prob_rank_list = []
+        merged_rect_prob_list = []
         for merged_rect in rect_list:
             sum_of_prob = 0.0
-            sum_of_rank = 0.0
+
             merged_count = 0
             for idx, original_rect in enumerate(rects_only):
                 if intersect(original_rect, merged_rect):
                     original_rect_prob = rect_prob_list[idx][1]
-                    original_rect_rank = rect_prob_list[idx][2]
                     sum_of_prob += original_rect_prob
-                    sum_of_rank += original_rect_rank
                     merged_count += 1
 
             avg_prob = sum_of_prob / merged_count
-            avg_rank = sum_of_rank / merged_count
-            merged_rect_prob_rank_list.append(
-                (merged_rect, avg_prob, avg_rank))
+            merged_rect_prob_list.append((merged_rect, avg_prob))
 
         if len(rect_list) > 0:
-            grouped_map[label] = merged_rect_prob_rank_list
+            grouped_map[label] = merged_rect_prob_list
     return grouped_map
 
 
@@ -226,44 +232,45 @@ def main(args):
         # (?, n, n, NUM_CLASSES) tensor
         logits = graph.get_tensor_by_name(pgnet.OUTPUT_TENSOR_NAME + ":0")
         # each cell in coords (batch_position, i, j) -> is a probability vector
-        per_batch_probabilities = tf.nn.softmax(
+        per_roi_probabilities = tf.nn.softmax(
             tf.reshape(logits, [-1, num_classes]))
         # [tested positions, num_classes]
 
         # array[0]=values, [1]=indices
-        top_k = tf.nn.top_k(per_batch_probabilities, k=TOP_K)
+        top_k = tf.nn.top_k(per_roi_probabilities, k=TOP_K)
         # each with shape [tested_positions, k]
-
-        original_image, batch = image_processing.read_and_batchify_image(
+        original_image, eval_image = image_processing.get_original_and_processed_image(
             tf.constant(args.image_path),
-            [NO_PATCHES_PER_SIDE**2, PATCH_SIDE, PATCH_SIDE, 3],
+            INPUT_SIDE,
             image_type=args.image_path.split('.')[-1])
+
+        # roi placehoder
+        roi_ = tf.placeholder(tf.uint8)
+        # rop preprocessing, single image classification
+        roi_preproc = image_processing.zm_mp(
+            image_processing.resize_bl(
+                tf.image.convert_image_dtype(roi_, tf.float32),
+                pgnet.INPUT_SIDE))
 
         with tf.Session(config=tf.ConfigProto(
                 allow_soft_placement=True)) as sess:
 
-            batchifyed_image = batch.eval()
-
-            #for idx, img in enumerate(batchifyed_image):
-            #    cv2.imshow(str(idx), img)
-            #cv2.waitKey(0)
+            input_images, image = sess.run([eval_image, original_image])
+            image = cv2.normalize(
+                image, image, 0, 255, cv2.NORM_MINMAX, dtype=cv2.CV_8UC3)
+            ####
             start = time.time()
-            probability_map, top_values, top_indices, image = sess.run(
-                [logits, top_k[0], top_k[1], original_image],
+            probability_map, top_values, top_indices = sess.run(
+                [logits, top_k[0], top_k[1]],
                 feed_dict={
-                    "images_:0": batchifyed_image
+                    "images_:0": input_images
                 })
             nn_time = time.time() - start
             print("NN time: {}".format(nn_time))
 
-            # extract image (resized image) dimensions to get the scaling factor
-            # respect to the original image
-            patch_scaling_factors = np.array(
-                [image.shape[1] / RESIZED_INPUT_SIDE,
-                 image.shape[0] / RESIZED_INPUT_SIDE])
             # scaling factor between original image and resized image
             full_image_scaling_factors = np.array(
-                [image.shape[1] / PATCH_SIDE, image.shape[0] / PATCH_SIDE])
+                [image.shape[1] / INPUT_SIDE, image.shape[0] / INPUT_SIDE])
 
             # let's think to the net as a big net, with the last layer (before the FC
             # layers for classification) with a receptive field of
@@ -274,238 +281,205 @@ def main(args):
             # (that make the output side of contolution integer) the result is a spacial map
             # of points. Every point has a depth of num classes.
 
-            # convert probability map coordinates to reshaped coordinates
-            # (that contains the softmax probabilities): it's a counter.
-            probability_coords = 0
+            # for every image in the input batch
+            for _ in range(len(input_images)):
+                probability_coords = 0
+                glance = defaultdict(list)
+                # select count(*), avg(prob) from map group by label, order by count, avg.
+                group = defaultdict(lambda: defaultdict(float))
+                for pmap_y in range(probability_map.shape[1]):
+                    # calculate position in the downsampled image ds
+                    ds_y = pmap_y * pgnet.CONV_STRIDE
+                    for pmap_x in range(probability_map.shape[2]):
+                        ds_x = pmap_x * pgnet.CONV_STRIDE
 
-            # boxes is the image grid
-            boxes = defaultdict(lambda: defaultdict(list))
+                        print(top_values[probability_coords][0])
+                        if top_indices[probability_coords][
+                                0] != BACKGROUND_CLASS and top_values[
+                                    probability_coords][0] >= MIN_PROB:
 
-            for j in range(NO_PATCHES_PER_SIDE):
-                for i in range(NO_PATCHES_PER_SIDE):
-                    # grid coordinates in the original image
-                    corner_top_x = int(i * PATCH_SIDE *
-                                       patch_scaling_factors[0])
-                    corner_top_y = int(j * PATCH_SIDE *
-                                       patch_scaling_factors[1])
-                    corner_bottom_x = int(
-                        (i + 1) * PATCH_SIDE * patch_scaling_factors[0])
-                    corner_bottom_y = int(
-                        (j + 1) * PATCH_SIDE * patch_scaling_factors[1])
-                    grid_coord = (corner_top_x, corner_top_y, corner_bottom_x,
-                                  corner_bottom_y)
+                            # create coordinates of rect in the downsampled image
+                            # convert to numpy array in order to use broadcast ops
+                            coord = [ds_x, ds_y, ds_x + pgnet.LAST_KERNEL_SIDE,
+                                     ds_y + pgnet.LAST_KERNEL_SIDE]
+                            # if something is found, append rectagle to the
+                            # map of rectalges per class
+                            rect = upsample_and_shift(
+                                coord, pgnet.DOWNSAMPLING_FACTOR, [0, 0],
+                                full_image_scaling_factors)
 
-                    for pmap_y in range(probability_map.shape[1]):
-                        # calculate position in the downsampled image ds
-                        ds_y = pmap_y * pgnet.CONV_STRIDE
-                        for pmap_x in range(probability_map.shape[2]):
-                            ds_x = pmap_x * pgnet.CONV_STRIDE
+                            prob = top_values[probability_coords][0]
+                            label = PASCAL_LABELS[top_indices[
+                                probability_coords][0]]
 
-                            # if is not background and the has the right prob
-                            if top_indices[probability_coords][
-                                    0] != BACKGROUND_CLASS and top_values[
-                                        probability_coords][
-                                            0] > MIN_LOCAL_PROB:
+                            rect_prob = [rect, prob]
+                            print('Glance: {} ({})'.format(rect_prob, label))
+                            glance[label].append(rect_prob)
+                            group[label]["count"] += 1
+                            group[label]["prob"] += prob
 
-                                # create coordinates of rect in the downsampled image
-                                ds_coord = np.array(
-                                    [ds_x, ds_y, ds_x + pgnet.LAST_KERNEL_SIDE,
-                                     ds_y + pgnet.LAST_KERNEL_SIDE])
+                        # update probability coord value
+                        probability_coords += 1
 
-                                # get the input coordinates
-                                rect = upsample_and_shift(
-                                    ds_coord, pgnet.DOWNSAMPLING_FACTOR,
-                                    [PATCH_SIDE * i, PATCH_SIDE * j],
-                                    patch_scaling_factors)
+                classes = group.keys()
+                print('Found {} classes: {}'.format(len(classes), classes))
 
-                                for top_k in range(TOP_K):
-                                    prob = top_values[probability_coords][
-                                        top_k]
-                                    rect_prob_rank = [rect, prob, top_k + 1]
-                                    label = PASCAL_LABELS[top_indices[
-                                        probability_coords][top_k]]
-                                    boxes[grid_coord][label].append(
-                                        rect_prob_rank)
+                min_freq = LOOKED_POS
+                min_prob = 1  # +/- 0.05
+                eps = 0.01
+                for label in group:
+                    group[label]["prob"] /= group[label]["count"]
+                    prob = group[label]["prob"]
+                    freq = group[label]["count"]
 
-                                # update probability coord value
-                            probability_coords += 1
+                    if freq < min_freq:
+                        min_freq = freq
+                    if prob < min_prob:
+                        min_prob = prob
 
-            # we processed the local regions, lets look at the global regions
-            # of the whole image resized and analized
-            # as the last image in the batch.
-            # Here we give a glance to the image
+                # pruning
+                group = {
+                    label: value
+                    for label, value in group.items()
+                    if value["prob"] > min_prob + eps and value["count"] >
+                    min_freq
+                }
 
-            # probability_coords can
-            # increase again by probability_map.shape[1] * probability_map.shape[2]
-            # = the location watched in the original, resized, image
+                classes = group.keys()
+                print('Remaining classes: {} ({})'.format(classes, len(
+                    classes)))
 
-            # save the global glance in a separate dict
-            global_glance = defaultdict(list)
-            for pmap_y in range(probability_map.shape[1]):
-                # calculate position in the downsampled image ds
-                ds_y = pmap_y * pgnet.CONV_STRIDE
-                for pmap_x in range(probability_map.shape[2]):
-                    ds_x = pmap_x * pgnet.CONV_STRIDE
+                looked_pos = sum(value['count'] for value in group.values())
+                print(
+                    'New looked positions: {} vs avaiable positions {}'.format(
+                        looked_pos, LOOKED_POS))
 
-                    if top_indices[probability_coords][
-                            0] != BACKGROUND_CLASS and top_values[
-                                probability_coords][0] > MIN_GLOBAL_PROB:
+                print(group)
+                print(
+                    'Scale the probability of each class, using the relative frequency')
+                rankmap = defaultdict(float)
+                for label in group:
+                    print(label, group[label]["prob"], group[label]["count"])
+                    relative_freq = group[label]["count"] / looked_pos
+                    print('RF ', relative_freq)
+                    group[label]["prob"] *= relative_freq
+                    print('NP: ', group[label]["prob"])
+                    rankmap[label] = group[label]["prob"]
 
-                        # create coordinates of rect in the downsampled image
-                        # convert to numpy array in order to use broadcast ops
-                        coord = [ds_x, ds_y, ds_x + pgnet.LAST_KERNEL_SIDE,
-                                 ds_y + pgnet.LAST_KERNEL_SIDE]
-                        # if something is found, append rectagle to the
-                        # map of rectalges per class
-                        cv_rect = upsample_and_shift(
-                            coord, pgnet.DOWNSAMPLING_FACTOR, [0, 0],
-                            full_image_scaling_factors)
+                # keep rectangles from local glance, only of the remaining labels
+                glance = {label: value
+                          for label, value in glance.items()
+                          if label in classes}
 
-                        top_1_label = PASCAL_LABELS[top_indices[
-                            probability_coords][0]]
-                        # save the probability associated to the rect
-                        # [ [rect], probability]
-                        rect_prob_rank = [cv_rect,
-                                          top_values[probability_coords][0], 1]
-                        print('Glance: {} ({})'.format(rect_prob_rank,
-                                                       top_1_label))
-                        global_glance[top_1_label].append(rect_prob_rank)
+                # merge overlapping rectangles for each class
+                global_rect_prob = group_overlapping_with_same_class(glance)
 
-                    # update probability coord value
-                    probability_coords += 1
-
-            # global
-            global_rect_prob = group_overlapping_with_same_class(global_glance)
-            # local, for every cell in the grid
-            unique_boxes = defaultdict(list)
-            for box_coord, local_glance in boxes.items():
-                unique_boxes[box_coord] = group_overlapping_with_same_class(
-                    local_glance)
-            #unique_boxes = boxes
-
-            draw_local = False
-            draw_global = True
-            if draw_global:
-                for global_label, global_rect_prob_list in global_rect_prob.items(
-                ):
-                    for rect_prob in global_rect_prob_list:
-                        rect = rect_prob[0]
-                        prob = rect_prob[1]
-                        draw_box(
-                            image,
-                            rect,
-                            "{} {:.3}".format(global_label, prob),
-                            LABEL_COLORS[global_label],
-                            thickness=1)
-
-            if draw_local:
-                for box_coord, local_glance in unique_boxes.items():
-                    for local_label, local_rect_prob_rank_list in local_glance.items(
-                    ):
-                        for rect_prob in local_rect_prob_rank_list:
+                if False:
+                    for label, rect_prob_list in global_rect_prob.items():
+                        for rect_prob in rect_prob_list:
                             rect = rect_prob[0]
                             prob = rect_prob[1]
-                            rank = rect_prob[2]
-                            draw_box(image, rect, "({}){} {:.3}".format(
-                                rank, local_label, prob),
-                                     LABEL_COLORS[local_label])
-
-            # global regions are research area for local region
-            # search within top-k local regions if there's the global region
-            # label. If it's, promote it, assigning it the global regions probability
-            # Do this for every intersection.
-            # eg: if local region A, is covered by 2 global regions (with different class)
-            # and in the top-k labels associated with A there are the 2 labels of the global regions
-            # promote the local labels (assign to them the global region probability).
-            # Than, draw the local label, labeled with the highest probability.
-            intersections = defaultdict(lambda: defaultdict(list))
-
-            for global_label, global_rect_prob_list in global_rect_prob.items(
-            ):
-                for g_rect_prob in global_rect_prob_list:
-                    g_rect = g_rect_prob[0]
-                    g_prob = g_rect_prob[1]
-
-                    g_center = np.array(center_point(g_rect))
-                    normalized_g_center = g_center / norm(g_center)
-
-                    for box_coord, local_glance in unique_boxes.items():
-                        # fast filter
-                        if intersect(box_coord, g_rect):
-                            for local_label, local_rect_prob_rank_list in local_glance.items(
-                            ):
-                                if global_label == local_label:
-                                    for idx, l_rect_prob_rank in enumerate(
-                                            local_rect_prob_rank_list):
-                                        l_rect = l_rect_prob_rank[0]
-                                        l_prob = l_rect_prob_rank[1]
-                                        l_rank = l_rect_prob_rank[2]
-                                        if intersect(g_rect, l_rect):
-                                            # promote l_rect, based on the rank (in the top k)
-                                            # of l_rect
-                                            promotion = max(g_prob, l_prob)
-
-                                            if promotion < MIN_GLOCAL_PROB:
-                                                promotion = 0
-
-                                            pair = (l_rect, promotion)
-                                            print(
-                                                'Update {} to {}. [global {}, local: {}]'.format(
-                                                    unique_boxes[box_coord][
-                                                        local_label][idx],
-                                                    pair, g_rect, l_rect))
-
-                                            # update probability
-                                            unique_boxes[box_coord][
-                                                local_label][idx] = pair
-                                            intersections[box_coord][
-                                                local_label].append(pair)
-
-                                            # and penalize classes, for the same location, without global intersection
-
-                                        # draw top-1 only of adjusted local glances
-            for box_coord, local_glance in intersections.items():
-                for local_label, local_rect_prob_list in local_glance.items():
-                    print('cell: {}, classes: {} {}, {}'.format(
-                        box_coord, local_label, local_rect_prob_list, len(
-                            local_rect_prob_list)))
-                    for rect_prob in local_rect_prob_list:
-                        rect = rect_prob[0]
-                        prob = rect_prob[1]
-                        if prob > 0:
                             draw_box(
                                 image,
                                 rect,
-                                "{} {:.3}".format(local_label, prob),
-                                LABEL_COLORS[local_label],
-                                thickness=2)
-                        else:
-                            print('*')
+                                "{} {:.3}".format(label, prob),
+                                LABEL_COLORS[label],
+                                thickness=1)
 
-            #print(intersections)
-            #draw_final(image, intersections)
-            """
-            # if the global glances resulted in one single class
-            # there's an high probability that the image contains 1 element in foreground
-            # so, discard local regions and use only the detected global regions
-            num_glance_classes = len(global_rect_prob)
-            if num_glance_classes == 1:
-                for label, rect_prob_list in global_rect_prob.items():
-                    # extract rectangles from the array of pairs
-                    # rects are already grouped
-                    for rect_prob in rect_prob_list:
+                # loop preserving order, because rois are evaluated in order
+                rois = []
+                for label, value in sorted(
+                        rankmap.items(), key=operator.itemgetter(1),
+                        reverse=True):
+                    # extract rectangles for each image and classify it.
+                    # if the classification gives the same global label as top-1(2,3?) draw it
+                    # else skip it.
+                    for rect_prob in global_rect_prob[label]:
                         rect = rect_prob[0]
-                        prob = rect_prob[1]
-                        print(rect, label, prob)
-                        draw_box(image, rect, label + " {:.3}".format(prob),
-                                 LABEL_COLORS[label])
+                        y2 = rect[3]
+                        y1 = rect[1]
+                        x2 = rect[2]
+                        x1 = rect[0]
+                        roi = image[y1:y2, x1:x2]
 
-            """
-            nn_and_drawing_time = time.time() - start
-            print("NN + drawing time: {}".format(nn_and_drawing_time))
-            cv2.imshow("img", image)
-            legend()
-            cv2.waitKey(0)
+                        rois.append(
+                            sess.run(roi_preproc, feed_dict={roi_: roi}))
+
+                # evaluate top values for every image in the batch of rois
+                top_values, top_indices = sess.run(
+                    [top_k[0], top_k[1]], feed_dict={"images_:0": rois})
+
+                roi_id = 0
+                draw_rect_prob = defaultdict(list)
+                for label, confidence in sorted(
+                        rankmap.items(), key=operator.itemgetter(1),
+                        reverse=True):
+
+                    # evaluate only regions with confidence greater then threshold
+                    # rois are collected in order of highest confidence of the global label
+                    if confidence > eps:
+                        # loop over rect with the current label
+                        for rect_prob in global_rect_prob[label]:
+                            roi_prob = top_values[roi_id][0]
+                            roi_label = PASCAL_LABELS[top_indices[roi_id][0]]
+
+                            print(
+                                'roi_prob {} vs {}, roi_label {} vs {}'.format(
+                                    roi_prob, rect_prob[1], roi_label, label))
+                            print(label, confidence)
+                            print(top_values[roi_id],
+                                  [PASCAL_LABELS[top_indices[roi_id][l]]
+                                   for l in range(TOP_K)])
+
+                            draw = False
+                            draw_label = ''
+                            draw_prob = 0
+
+                            if abs(roi_prob - rect_prob[1]) <= max(
+                                    rankmap[roi_label], confidence) + eps:
+                                top_labels = [
+                                    PASCAL_LABELS[top_indices[roi_id][lbl]]
+                                    for lbl in range(1, TOP_K)
+                                ]
+
+                                if label == roi_label:
+                                    draw = True
+                                    draw_prob = max(rect_prob[1], roi_prob)
+                                    draw_label = label
+                                elif label in top_labels:
+                                    draw = True
+                                    if rankmap[label] > rankmap[roi_label]:
+                                        draw_prob = rect_prob[1]
+                                        draw_label = label
+                                    else:
+                                        draw_prob = roi_prob
+                                        draw_label = roi_label
+                            if draw:
+                                print('winner: {} {}'.format(draw_label,
+                                                             draw_prob))
+                                draw_rect_prob[draw_label].append(
+                                    [rect_prob[0], draw_prob])
+                            roi_id += 1
+                    else:
+                        # exploit the sorted confidence to speed up evaluaion
+                        break
+
+                # keep singles
+                draw_rect_prob = group_overlapping_with_same_class(
+                    draw_rect_prob, keep_singles=True)
+                for label, rect_prob_list in draw_rect_prob.items():
+                    for rect_prob in rect_prob_list:
+                        draw_box(
+                            image,
+                            rect_prob[0],
+                            "{}({:.3})".format(label, rect_prob[1]),
+                            LABEL_COLORS[label],
+                            thickness=2)
+
+                cv2.imshow("img", image)
+                #legend()
+                cv2.waitKey(0)
+                sys.exit()
 
 
 if __name__ == "__main__":

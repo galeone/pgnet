@@ -154,6 +154,31 @@ def eval_image(image_path, output_side, image_type="jpg"):
     return image
 
 
+def get_original_and_processed_image(image_path, side, image_type="jpg"):
+    """Return the original image as read from image_path and the image splitted as a batch tensor.
+    Args:
+        image_path: image path
+        side: image side
+        image_type: image type
+    Returns:
+        original_image, eval_image
+        where original image is a tensor in the format [widht, height 3]
+        eval_image is a 4-D tensor, with shape [1, w, h, 3]"""
+
+    if image_type == "jpg":
+        original_image = read_image_jpg(image_path, 3)
+    else:
+        original_image = read_image_png(image_path, 3)
+
+    normalized_patches = []
+
+    # the whole image resized to side² x 3 to give a glance to the whole image
+    normalized_patches.append(zm_mp(resize_bl(original_image, side)))
+    batch_of_patches = tf.pack(normalized_patches)
+    return tf.image.convert_image_dtype(
+        original_image, dtype=tf.uint8), batch_of_patches
+
+
 def read_and_batchify_image(image_path, shape, image_type="jpg"):
     """Return the original image as read from image_path and the image splitted as a batch tensor.
     Args:
