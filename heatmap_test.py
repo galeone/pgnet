@@ -263,8 +263,6 @@ def main(args):
                 feed_dict={
                     "images_:0": input_images
                 })
-            nn_time = time.time() - start
-            print("NN time: {}".format(nn_time))
 
             # scaling factor between original image and resized image
             full_image_scaling_factors = np.array(
@@ -481,6 +479,9 @@ def main(args):
                             "{}({:.3})".format(label, rect_prob[1]),
                             LABEL_COLORS[label],
                             thickness=2)
+
+                end_time = time.time() - start
+                print("time: {}".format(end_time))
 
                 cv2.imshow("img", image)
                 #legend()
