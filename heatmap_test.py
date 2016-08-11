@@ -34,7 +34,9 @@ INPUT_SIDE = pgnet.INPUT_SIDE + pgnet.DOWNSAMPLING_FACTOR * 20
 OUTPUT_SIDE = INPUT_SIDE / pgnet.DOWNSAMPLING_FACTOR - pgnet.LAST_KERNEL_SIDE + 1
 LOOKED_POS = OUTPUT_SIDE**2
 MIN_PROB = 0.6
-TOP_K = 2
+
+# challenge constants
+ROI_TEAM_MEMBERS = 2
 EPS = 0.02
 
 # trained pgnet constants
@@ -238,7 +240,8 @@ def main(args):
         # [tested positions, num_classes]
 
         # array[0]=values, [1]=indices
-        top_k = tf.nn.top_k(per_roi_probabilities, k=TOP_K)
+        # get every probabiliy, because we can use localization to do classification
+        top_k = tf.nn.top_k(per_roi_probabilities, k=num_classes)
         # each with shape [tested_positions, k]
         original_image, eval_image = image_processing.get_original_and_processed_image(
             tf.constant(args.image_path),
@@ -433,15 +436,16 @@ def main(args):
                         print('ROI {}{} vs REGION {}{}, l2: {}'.format(
                             roi_label, roi_point, label, region_point,
                             distance))
+
                         print('ROI-K: {}'.format(top_values[
                             roi_id], [PASCAL_LABELS[top_indices[roi_id][l]]
-                                      for l in range(TOP_K)]))
+                                      for l in range(ROI_TEAM_MEMBERS)]))
 
                         # fiter on ROI prob (> MIN_PROB  + 0.1)
                         if roi_prob - margin > MIN_PROB and distance < radius:
                             top_labels = [
                                 PASCAL_LABELS[top_indices[roi_id][lbl]]
-                                for lbl in range(1, TOP_K)
+                                for lbl in range(1, ROI_TEAM_MEMBERS)
                             ]
 
                             if label == roi_label:
