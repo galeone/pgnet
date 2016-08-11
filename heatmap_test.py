@@ -422,16 +422,15 @@ def main(args):
                         draw_label = ''
                         draw_prob = 0
 
-                        # if points are in the same cluster start the challenge
-
-                        # roi point
-                        roi_point = (roi_prob, rankmap[roi_label])
                         # region_point
                         region_point = (rect_prob[1], confidence)
+                        # roi point
+                        roi_point = (roi_prob, rankmap[roi_label])
+                        # if points are in the same cluster start the challenge
                         distance = l2(roi_point, region_point)
                         # dynamic radius
-                        radius = (norm(region_point)) * 0.1
-                        #radius = confidence**2
+                        margin = 0.1
+                        radius = norm(region_point) * margin
                         print(radius)
                         print('ROI {}{} vs REGION {}{}, l2: {}'.format(
                             roi_label, roi_point, label, region_point,
@@ -441,16 +440,17 @@ def main(args):
                                       for l in range(TOP_K)]))
 
                         # fiter on ROI prob (> MIN_PROB  + 0.1)
-                        if roi_prob > MIN_PROB + 0.1 and distance < radius:
+                        if roi_prob - margin > MIN_PROB and distance < radius:
                             top_labels = [
                                 PASCAL_LABELS[top_indices[roi_id][lbl]]
                                 for lbl in range(1, TOP_K)
                             ]
 
                             if label == roi_label:
-                                draw = True
-                                draw_prob = max(rect_prob[1], roi_prob)
-                                draw_label = label
+                                if roi_prob >= rect_prob[1]:
+                                    draw = True
+                                    draw_prob = max(rect_prob[1], roi_prob)
+                                    draw_label = label
                             elif label in top_labels:
                                 draw = True
                                 if rankmap[label] > rankmap[roi_label]:
