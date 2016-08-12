@@ -14,7 +14,6 @@ import time
 import math
 from collections import defaultdict
 import operator
-from statistics import mode, StatisticsError
 import tensorflow as tf
 import cv2
 import numpy as np
@@ -37,7 +36,7 @@ MIN_PROB = 0.6
 
 # challenge constants
 ROI_TEAM_MEMBERS = 2
-EPS = 0.02
+EPS = 0.03
 
 # trained pgnet constants
 BACKGROUND_CLASS = 20
@@ -123,34 +122,14 @@ def intersect(rect_a, rect_b):
     return True
 
 
-def contains(rect_a, rect_b):
-    """Returns true if rect_a contains rect_b"""
-    return rect_a[0] <= rect_b[0] and rect_a[1] <= rect_b[1] and rect_a[
-        2] >= rect_b[2] and rect_a[3] >= rect_b[3]
-
-
-def center_point(rect):
-    """Extract the coordinates (rounted to int) of the center of the rect"""
-    h = rect[2] - rect[0]
-    w = rect[3] - rect[1]
-    return (2 * rect[0] + h, 2 * rect[1] + w)
-
-
 def norm(p0):
+    """Returns sqrt(p0[0]**2 + p0[1]**2)"""
     return math.sqrt(p0[0]**2 + p0[1]**2)
 
 
 def l2(p0, p1):
+    """Returns norm((p0[0] - p1[0], p0[1] - p1[1]))"""
     return norm((p0[0] - p1[0], p0[1] - p1[1]))
-
-
-def variance(set_of_values):
-    """Returns the mean and the variance of the set_of_values set"""
-    n = len(set_of_values)
-    sum_of_x = sum(set_of_values)
-    mu = sum_of_x / n
-    sigma = sum(x**2 for x in set_of_values) / n - mu
-    return mu, sigma
 
 
 def group_overlapping_with_same_class(map_of_regions, keep_singles=False):
@@ -186,21 +165,6 @@ def group_overlapping_with_same_class(map_of_regions, keep_singles=False):
         if len(rect_list) > 0:
             grouped_map[label] = merged_rect_prob_list
     return grouped_map
-
-
-def draw_final(image, boxes):
-    #unique = {}
-    for box, label_prob_lists in boxes.items():
-        top_1_label_prob = ['', 0.0]
-        for label, rect_prob_list in label_prob_lists.items():
-            for rect_prob in rect_prob_list:
-                prob = rect_prob[1]
-                if prob > top_1_label_prob[1]:
-                    top_1_label_prob = [label, prob]
-        #unique[box] = top_1_label_prob
-        draw_box(image, box, "{} {:.3}".format(top_1_label_prob[0],
-                                               top_1_label_prob[1]),
-                 LABEL_COLORS[top_1_label_prob[0]])
 
 
 def main(args):
@@ -267,10 +231,6 @@ def main(args):
                     "images_:0": input_images
                 })
 
-            # scaling factor between original image and resized image
-            full_image_scaling_factors = np.array(
-                [image.shape[1] / INPUT_SIDE, image.shape[0] / INPUT_SIDE])
-
             # let's think to the net as a big net, with the last layer (before the FC
             # layers for classification) with a receptive field of
             # LAST_KERNEL_SIDE x LAST_KERNEL_SIDE. Lets approximate the net with this last kernel:
@@ -282,6 +242,10 @@ def main(args):
 
             # for every image in the input batch
             for _ in range(len(input_images)):
+                # scaling factor between original image and resized image
+                full_image_scaling_factors = np.array(
+                    [image.shape[1] / INPUT_SIDE, image.shape[0] / INPUT_SIDE])
+
                 probability_coords = 0
                 glance = defaultdict(list)
                 # select count(*), avg(prob) from map group by label, order by count, avg.
@@ -292,7 +256,6 @@ def main(args):
                     for pmap_x in range(probability_map.shape[2]):
                         ds_x = pmap_x * pgnet.CONV_STRIDE
 
-                        print(top_values[probability_coords][0])
                         if top_indices[probability_coords][
                                 0] != BACKGROUND_CLASS and top_values[
                                     probability_coords][0] >= MIN_PROB:
@@ -312,7 +275,6 @@ def main(args):
                                 probability_coords][0]]
 
                             rect_prob = [rect, prob]
-                            print('Glance: {} ({})'.format(rect_prob, label))
                             glance[label].append(rect_prob)
                             group[label]["count"] += 1
                             group[label]["prob"] += prob
@@ -324,7 +286,7 @@ def main(args):
                 print('Found {} classes: {}'.format(len(classes), classes))
 
                 min_freq = LOOKED_POS
-                min_prob = 1  # +/- 0.05
+                min_prob = 1
                 for label in group:
                     group[label]["prob"] /= group[label]["count"]
                     prob = group[label]["prob"]
@@ -335,7 +297,7 @@ def main(args):
                     if prob < min_prob:
                         min_prob = prob
 
-                # pruning
+                # pruning with EPS tollerance
                 group = {
                     label: value
                     for label, value in group.items()
@@ -343,27 +305,19 @@ def main(args):
                     min_freq
                 }
 
+                # remaining classes
                 classes = group.keys()
-                print('Remaining classes: {} ({})'.format(classes, len(
-                    classes)))
 
+                # consider the positions of the remaining classes
                 looked_pos = sum(value['count'] for value in group.values())
-                print(
-                    'New looked positions: {} vs avaiable positions {}'.format(
-                        looked_pos, LOOKED_POS))
 
-                print(group)
-
-                print(
-                    'Scale the probability of each class, using the relative frequency')
+                # Save the relative frequency for every class
                 rankmap = defaultdict(float)
                 for label in group:
-                    print(label, group[label]["prob"], group[label]["count"])
                     relative_freq = group[label]["count"] / looked_pos
-                    print('RF ', relative_freq)
-                    group[label]["prob"] *= relative_freq
-                    print('NP: ', group[label]["prob"])
                     rankmap[label] = relative_freq
+                    print('{}, {}, {} => RF {}'.format(label, group[label][
+                        "prob"], group[label]["count"], relative_freq))
 
                 # keep rectangles from local glance, only of the remaining labels
                 glance = {label: value
@@ -402,11 +356,15 @@ def main(args):
                         break
 
                 # evaluate top values for every image in the batch of rois
-                top_values, top_indices = sess.run(
+                rois_top_values, rois_top_indices = sess.run(
                     [top_k[0], top_k[1]], feed_dict={"images_:0": rois})
 
                 roi_id = 0
-                draw_rect_prob = defaultdict(list)
+                # localization dictionary. ["label"] => [[rect, prob], ...]
+                localize = defaultdict(list)
+                # classification dictionary.
+                #[(rect)] => [top_values[0..num_cl], top_indices[0..num_cl]]
+                classify = defaultdict(list)
                 for label, confidence in sorted(
                         rankmap.items(), key=operator.itemgetter(1),
                         reverse=True):
@@ -416,66 +374,78 @@ def main(args):
 
                     # loop over rect with the current label
                     for rect_prob in global_rect_prob[label]:
-                        roi_prob = top_values[roi_id][0]
-                        roi_label = PASCAL_LABELS[top_indices[roi_id][0]]
+                        # remove background class from avaiable classes
+                        # need to use tolist because rois_top_indices[roi_id] is
+                        # a ndarray (Tensorflow always returns ndarray, even if
+                        # the data is 1-D)
+                        bg_pos = rois_top_indices[roi_id].tolist().index(
+                            BACKGROUND_CLASS)
+                        roi_top_probs = np.delete(rois_top_values[roi_id],
+                                                  bg_pos)
+                        roi_top_indices = np.delete(rois_top_indices[roi_id],
+                                                    bg_pos)
 
-                        draw = False
-                        draw_label = ''
-                        draw_prob = 0
-
+                        # top-1 label
+                        roi_label = PASCAL_LABELS[roi_top_indices[0]]
                         # region_point
                         region_point = (rect_prob[1], confidence)
                         # roi point
-                        roi_point = (roi_prob, rankmap[roi_label])
+                        roi_point = (roi_top_probs[0], rankmap[roi_label])
                         # if points are in the same cluster start the challenge
                         distance = l2(roi_point, region_point)
                         # dynamic radius
                         margin = 0.1
                         radius = norm(region_point) * margin
-                        print(radius)
-                        print('ROI {}{} vs REGION {}{}, l2: {}'.format(
+                        print('ROI {}{} vs REGION {}{}, l2: {}. r: {}'.format(
                             roi_label, roi_point, label, region_point,
-                            distance))
+                            distance, radius))
 
-                        print('ROI-K: {}'.format(top_values[
-                            roi_id], [PASCAL_LABELS[top_indices[roi_id][l]]
-                                      for l in range(ROI_TEAM_MEMBERS)]))
-
+                        draw = False
                         # fiter on ROI prob (> MIN_PROB  + 0.1)
-                        if roi_prob - margin > MIN_PROB and distance < radius:
-                            top_labels = [
-                                PASCAL_LABELS[top_indices[roi_id][lbl]]
-                                for lbl in range(1, ROI_TEAM_MEMBERS)
-                            ]
-
+                        if roi_top_probs[
+                                0] - margin > MIN_PROB and distance < radius:
+                            winner = ''
                             if label == roi_label:
-                                if roi_prob >= rect_prob[1]:
+                                winner = label
+                                if roi_top_probs[0] >= rect_prob[1]:
                                     draw = True
-                                    draw_prob = max(rect_prob[1], roi_prob)
-                                    draw_label = label
-                            elif label in top_labels:
-                                draw = True
-                                if rankmap[label] > rankmap[roi_label]:
-                                    draw_prob = rect_prob[1]
-                                    draw_label = label
-                                else:
-                                    draw_prob = roi_prob
-                                    draw_label = roi_label
+                            else:
+                                roi_team_members = [
+                                    PASCAL_LABELS[roi_top_indices[lbl]]
+                                    for lbl in range(1, ROI_TEAM_MEMBERS)
+                                ]
+
+                                if label in roi_team_members:
+                                    draw = True
+                                    if rankmap[label] > rankmap[roi_label]:
+                                        winner = label
+                                        # switch probabilities. New top-1 is the region prob
+                                        # maximum probability value
+                                        if roi_top_probs[0] < rect_prob[1]:
+                                            roi_top_probs[0] = rect_prob[1]
+                                    else:
+                                        winner = roi_label
                         if draw:
-                            print('winner: {} {}'.format(draw_label,
-                                                         draw_prob))
-                            draw_rect_prob[draw_label].append(
-                                [rect_prob[0], draw_prob])
+                            print('winner: {}'.format(winner))
+                            localize[winner].append(
+                                [rect_prob[0], roi_top_probs[0]])
+
+                            classify[tuple(rect_prob[0])] = [roi_top_indices,
+                                                             roi_top_probs]
                         roi_id += 1
 
                 # keep singles
-                draw_rect_prob = group_overlapping_with_same_class(
-                    draw_rect_prob, keep_singles=True)
+                localize = group_overlapping_with_same_class(
+                    localize, keep_singles=True)
+
+                end_time = time.time() - start
+                print("time: {}".format(end_time))
+
                 # now I can convert RGB to BGR to display image with OpenCV
                 # I can't do that before, because ROIs gets extracted on RGB image
                 # in order to be processed without errors by Tensorflow
                 image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
-                for label, rect_prob_list in draw_rect_prob.items():
+                for label, rect_prob_list in localize.items():
                     for rect_prob in rect_prob_list:
                         draw_box(
                             image,
@@ -484,13 +454,9 @@ def main(args):
                             LABEL_COLORS[label],
                             thickness=2)
 
-                end_time = time.time() - start
-                print("time: {}".format(end_time))
-
                 cv2.imshow("img", image)
-                #legend()
                 cv2.waitKey(0)
-                sys.exit()
+                return 0
 
 
 if __name__ == "__main__":
