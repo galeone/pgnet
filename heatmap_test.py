@@ -35,7 +35,6 @@ LOOKED_POS = OUTPUT_SIDE**2
 MIN_PROB = 0.6
 
 # challenge constants
-ROI_TEAM_MEMBERS = 2
 EPS = 0.03
 
 # trained pgnet constants
@@ -331,7 +330,7 @@ def main(args):
                 # loop preserving order, because rois are evaluated in order
                 rois = []
                 rois_count = 0
-                for label, confidence in sorted(
+                for label, relative_freq in sorted(
                         rankmap.items(), key=operator.itemgetter(1),
                         reverse=True):
                     # extract rectangles for each image and classify it.
@@ -340,7 +339,7 @@ def main(args):
 
                     # Prune ROIs collections, using a threshold on the condidence.
                     # Avoid to collect useless rois and thus to analize them
-                    if confidence > EPS:
+                    if relative_freq > EPS:
                         for rect_prob in global_rect_prob[label]:
                             rect = rect_prob[0]
                             y2 = rect[3]
@@ -365,7 +364,7 @@ def main(args):
                 # classification dictionary.
                 #[(rect)] => [top_values[0..num_cl], top_indices[0..num_cl]]
                 classify = defaultdict(list)
-                for label, confidence in sorted(
+                for label, relative_freq in sorted(
                         rankmap.items(), key=operator.itemgetter(1),
                         reverse=True):
 
@@ -385,53 +384,22 @@ def main(args):
                         roi_top_indices = np.delete(rois_top_indices[roi_id],
                                                     bg_pos)
 
-                        # top-1 label
                         roi_label = PASCAL_LABELS[roi_top_indices[0]]
-                        # region_point
-                        region_point = (rect_prob[1], confidence)
-                        # roi point
-                        roi_point = (roi_top_probs[0], rankmap[roi_label])
-                        # if points are in the same cluster start the challenge
-                        distance = l2(roi_point, region_point)
-                        # dynamic radius
-                        margin = 0.1
-                        radius = norm(region_point) * margin
-                        print('ROI {}{} vs REGION {}{}, l2: {}. r: {}'.format(
-                            roi_label, roi_point, label, region_point,
-                            distance, radius))
+                        if label == roi_label:
+                            avg_prob = (rect_prob[1] + roi_top_probs[0])/2
 
-                        draw = False
-                        # fiter on ROI prob (> MIN_PROB  + 0.1)
-                        if roi_top_probs[
-                                0] - margin > MIN_PROB and distance < radius:
-                            winner = ''
-                            if label == roi_label:
-                                winner = label
-                                if roi_top_probs[0] >= rect_prob[1]:
-                                    draw = True
-                            else:
-                                roi_team_members = [
-                                    PASCAL_LABELS[roi_top_indices[lbl]]
-                                    for lbl in range(1, ROI_TEAM_MEMBERS)
+                            print(label, rect_prob[1], relative_freq,
+                                  roi_top_probs[0], avg_prob)
+
+                            draw = avg_prob > MIN_PROB + EPS
+                            if draw:
+                                print('draw')
+                                localize[label].append(
+                                    [rect_prob[0], roi_top_probs[0]])
+
+                                classify[tuple(rect_prob[0])] = [
+                                    roi_top_indices, roi_top_probs
                                 ]
-
-                                if label in roi_team_members:
-                                    draw = True
-                                    if rankmap[label] > rankmap[roi_label]:
-                                        winner = label
-                                        # switch probabilities. New top-1 is the region prob
-                                        # maximum probability value
-                                        if roi_top_probs[0] < rect_prob[1]:
-                                            roi_top_probs[0] = rect_prob[1]
-                                    else:
-                                        winner = roi_label
-                        if draw:
-                            print('winner: {}'.format(winner))
-                            localize[winner].append(
-                                [rect_prob[0], roi_top_probs[0]])
-
-                            classify[tuple(rect_prob[0])] = [roi_top_indices,
-                                                             roi_top_probs]
                         roi_id += 1
 
                 # keep singles
