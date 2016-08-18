@@ -28,23 +28,19 @@ INPUT_DEPTH = 3
 # network constants
 DOWNSAMPLING_FACTOR = 8
 LAST_KERNEL_SIDE = 23
-CONV_STRIDE = 1
 
 # train constants
 BATCH_SIZE = 32
-LEARNING_RATE = 1e-5  # Initial learning rate.
-
-# number of neurons in the last "fully connected" (1x1 conv) layer
-NUM_NEURONS = 1024
+LEARNING_RATE = 1e-2  # Initial learning rate.
 
 # output tensor name
 OUTPUT_TENSOR_NAME = "softmax_linear/out"
 
 
-def conv_layer(input_x, kernel_shape, padding, is_training=False):
-    """
-    Returns the result of:
-    ReLU(conv2d(x, kernels, padding=padding) + bias).
+# conv_layer do not normalize its output
+def conv_layer(input_x, kernel_shape, padding, strides):
+    """Returns the result of:
+    ReLU(conv2d(x, kernels, padding=padding, strides) + bias).
     Creates kernels (name=kernel), bias (name=bias) and relates summaries.
 
     Args:
@@ -53,7 +49,7 @@ def conv_layer(input_x, kernel_shape, padding, is_training=False):
                 [kernel_height, kernel_width, kernel_depth, num_kernels]
         name: the op name
         padding; "VALID" | "SAME"
-        is_training: True of is training
+        stride: 4-d tensor, like: [1, 2, 2, 1]
     """
 
     num_kernels = kernel_shape[3]
@@ -63,20 +59,26 @@ def conv_layer(input_x, kernel_shape, padding, is_training=False):
 
     out = tf.nn.relu(
         tf.add(tf.nn.conv2d(
-            input_x,
-            kernels,
-            strides=[1, CONV_STRIDE, CONV_STRIDE, 1],
-            padding=padding),
+            input_x, kernels, strides=strides, padding=padding),
                bias),
         name="out")
     return out
 
 
-def eq_conv_layer(input_x, kernel_side, num_kernels, is_training=False):
+# eq_conv_layer do normalize its output
+def eq_conv_layer(input_x, kernel_side, num_kernels, strides, is_training_):
     """Pads the input with the right amount of zeros.
     Convolve the padded input. In that way every pixel of the input image
     will contribute on average.
-    Output WxH = input WxH
+    Output WxH = input WxH.
+    Args:
+        input_x: image batch
+        kernel_side: kernel side
+        num_kernels: the number of the kernels to learn
+        strides: 4d tensor like: [1, stride, stride, 1]
+        is_training_: boolean placeholder to enable/disable train changes
+    Returns:
+        batch_norm(conv_layer(input_padded))
     """
 
     with tf.variable_scope("eq_conv_layer"):
@@ -89,14 +91,30 @@ def eq_conv_layer(input_x, kernel_side, num_kernels, is_training=False):
                                         [pad_amount, pad_amount], [0, 0]],
                               name="input_padded")
         print(input_padded)
-        return conv_layer(input_padded, kernel_shape, "VALID", is_training)
+        conv = conv_layer(input_padded, kernel_shape, "VALID", strides)
+
+        out = tf.contrib.layers.batch_norm(
+            conv,
+            decay=0.999,
+            center=True,
+            scale=True,
+            epsilon=0.001,
+            #activation_fn=None,
+            #updates_collections=ops.GraphKeys.UPDATE_OPS,
+            is_training=is_training_,
+            reuse=None,
+            variables_collections=None,
+            outputs_collections=None,
+            trainable=True,
+            scope=None)
+        return out
 
 
-def block(input_x, kernel_side, num_kernels, exp, is_training=False):
+def block(input_x, kernel_side, num_kernels, exp, is_training_):
     """ block returns the result of 4 convolution, using the eq_conv_layer.
     The first two layers have num_kernels kernels, the last two num_kernels*exp
 
-    params:
+    Args:
         input_x: [batch_size, height, width, depth]
         _kernel_size: we use only square kernels. This is the side length
         num_kernels: is the number of kernels to learn for the first conv.
@@ -106,131 +124,112 @@ def block(input_x, kernel_side, num_kernels, exp, is_training=False):
                 layer3, layer4: num_lernels *= exp
             num_kernels should be a power of exp, if you want exponential progression.
         exp: see num_kernels
-        is_training: set it to True when training
+        is_training_: boolean placeholder to enable/disable train changes
     """
+    strides = [1, 1, 1, 1]
     with tf.variable_scope("conv1"):
-        conv1 = eq_conv_layer(input_x, kernel_side, num_kernels, is_training)
+        conv1 = eq_conv_layer(input_x, kernel_side, num_kernels, strides,
+                              is_training_)
 
     with tf.variable_scope("conv2"):
-        conv2 = eq_conv_layer(conv1, kernel_side, num_kernels, is_training)
+        conv2 = eq_conv_layer(conv1, kernel_side, num_kernels, strides,
+                              is_training_)
 
     num_kernels *= exp
     with tf.variable_scope("conv3"):
-        conv3 = eq_conv_layer(conv2, kernel_side, num_kernels, is_training)
+        conv3 = eq_conv_layer(conv2, kernel_side, num_kernels, strides,
+                              is_training_)
 
     with tf.variable_scope("conv4"):
-        conv4 = eq_conv_layer(conv3, kernel_side, num_kernels, is_training)
+        conv4 = eq_conv_layer(conv3, kernel_side, num_kernels, strides,
+                              is_training_)
 
     return conv4
 
 
-def get(image_, num_classes, keep_prob_=1.0, is_training=False):
+def get(num_classes, images_, keep_prob_, is_training_, train_phase=False):
     """
-    @input:
-        image_: is a tensor placeholder with shape [-1, widht, height, depth]
+    Args:
         num_classes: is the number of classes that the network will classify
+        images_: is a tensor placeholder with shape [-1, widht, height, depth]
         keep_prob_: dropout probability
-        is_training: set it to True when training.
+        is_training_: placeholder to enable/disable train changes
+        train_phase: set it to True when training.
 
     As the net goes deeper, increase the number of filters (using power of 2
     in order to optimize GPU performance).
 
-    Always use small size filters because the same effect of a bigger filter can
-    be achieved using multiple small filters, that uses less computation resources.
-
     @returns:
         softmax_linear/out: spatial map of output vectors (unscaled)
     """
-    print(image_)
+
+    # in order to have only the images_ placeholder reqired when using
+    # the exported model, override is_training_ is_training when the model
+    # is not in the train phase. So the placeholder is not required by the model
+    if train_phase is False:
+        is_training_ = False
+
+    print(images_)
+
+    kernel_side = 11
+    num_kernels = 2**7  #128
+    with tf.variable_scope("conv1"):
+        conv1 = eq_conv_layer(images_, kernel_side, num_kernels, [1, 2, 2, 1],
+                              is_training_)
+    #output: 92x92x128, filters: (11x11x3)x128
+    print(conv1)
 
     kernel_side = 3
+    num_kernels *= 2
+    with tf.variable_scope("conv2"):
+        conv2 = eq_conv_layer(conv1, kernel_side, num_kernels, [1, 2, 2, 1],
+                              is_training_)
+    #output: 46x46x256, filters: (3x3x128)x256
+    print(conv2)
 
-    # In the following code, the architecture is defined supposing an input image
-    # of at least 184x184 (max value² of the average dimensions of the cropped pascal dataset)
     with tf.variable_scope("block1"):
-        num_kernels = 2**5
-        block1 = block(
-            image_, kernel_side, num_kernels, exp=2, is_training=is_training)
+        block1 = block(conv2, kernel_side, num_kernels, 2, is_training_)
         num_kernels *= 2
-    #output: 184x184x64
+    #output: 46x46x512. filters: (3x3x256)x256 -> (3x3x256)x256 -> (3x3x256)x512 -> (3x3x512)x512
     print(block1)
 
-    with tf.variable_scope("pool1"):
-        pool1 = tf.nn.max_pool(
-            block1, ksize=[1, 2, 2, 1], strides=[1, 2, 2, 1], padding="VALID")
-    #output: 92x92x64
-    print(pool1)
-
-    # normalization is useless
-    #
-    # CS231n: http://cs231n.github.io/convolutional-networks/
-    # Many types of normalization layers have been proposed for use in ConvNet architectures,
-    # sometimes with the intentions of implementing inhibition schemes observed in the biological
-    # brain.However, these layers have recently fallen out of favor because in practice their
-    # contribution has been shown to be minimal, if any.
-    # For various types of normalizations, see the discussion in Alex Krizhevsky's cuda-convnet
-    # library API.
-
-    # repeat the l1, using pool1 as input. Do not incrase the number of learned filter
-    # Preserve input depth
-    with tf.variable_scope("block2"):
-        block2 = block(
-            pool1, kernel_side, num_kernels, exp=2, is_training=is_training)
-        num_kernels *= 2
-        #output: 92x92x128
-        print(block2)
-
-    # reduce 2 times the input volume
-    # 92/2 = 46
-    with tf.variable_scope("pool2"):
-        pool2 = tf.nn.max_pool(
-            block2, ksize=[1, 2, 2, 1], strides=[1, 2, 2, 1], padding="VALID")
-    #output: 46x46x512
-    print(pool2)
-
-    with tf.variable_scope("block3"):
-        block3 = block(
-            pool2, kernel_side, num_kernels, exp=2, is_training=is_training)
-        num_kernels *= 2
-        #output: 46x46x512
-        print(block3)
-
-    # 46/2 = 23
-    with tf.variable_scope("pool3"):
-        pool3 = tf.nn.max_pool(
-            block3, ksize=[1, 2, 2, 1], strides=[1, 2, 2, 1], padding="VALID")
-        #output: 23x23x512
-        print(pool3)
+    with tf.variable_scope("conv3"):
+        conv3 = eq_conv_layer(block1, kernel_side, num_kernels, [1, 2, 2, 1],
+                              is_training_)
+    #output: 23x23x512. filters: (3x3x512)x512
 
     # fully convolutional layer
-    # take the 23x23x512 input and project it to a 1x1xNUM_NEURONS dim space
     with tf.variable_scope("fc1"):
         fc1 = conv_layer(
-            pool3,
-            [LAST_KERNEL_SIDE, LAST_KERNEL_SIDE, num_kernels, NUM_NEURONS],
-            "VALID", is_training)
+            conv3, [LAST_KERNEL_SIDE, LAST_KERNEL_SIDE, num_kernels, 1024],
+            "VALID", [1, 1, 1, 1])
         # output: 1x1xNUM_NEURONS
-        if is_training:
-            dropout1 = tf.nn.dropout(fc1, keep_prob_, name="dropout")
-        else:
+        # remove dependece from the keep_prob_ placeholder when the model
+        # is not in train phase
+        if train_phase is False:
             dropout1 = tf.nn.dropout(fc1, 1.0, name="dropout")
+        else:
+            dropout1 = tf.nn.dropout(fc1, keep_prob_, name="dropout")
+
         print(dropout1)
         # output: 1x1xNUM_NEURONS
 
     with tf.variable_scope("fc2"):
-        fc2 = conv_layer(dropout1, [1, 1, NUM_NEURONS, NUM_NEURONS], "VALID",
-                         is_training)
+        fc2 = conv_layer(dropout1, [1, 1, 1024, 1024], "VALID", [1, 1, 1, 1])
         # output: 1x1xNUM_NEURONS
-        if is_training:
-            dropout2 = tf.nn.dropout(fc2, keep_prob_, name="dropout")
-        else:
+        # remove dependece from the keep_prob_ placeholder when the model
+        # is not in train phase
+        if train_phase is False:
             dropout2 = tf.nn.dropout(fc2, 1.0, name="dropout")
+        else:
+            dropout2 = tf.nn.dropout(fc2, keep_prob_, name="dropout")
+
         print(dropout2)
         # output: 1x1xNUM_NEURONS
 
     with tf.variable_scope("softmax_linear"):
-        out = conv_layer(dropout2, [1, 1, NUM_NEURONS, num_classes], "VALID",
-                         is_training)
+        out = conv_layer(dropout2, [1, 1, 1024, num_classes], "VALID",
+                         [1, 1, 1, 1])
         # output: (BATCH_SIZE)x1x1xnum_classes if the input has been properly scaled
         # otherwise is a map
         print(out)
@@ -285,30 +284,35 @@ def train(loss_op, global_step):
     return minimizer
 
 
-def define_model(num_classes, is_training):
+def define_model(num_classes, train_phase):
     """ define the model with its inputs.
     Use this function to define the model in training and when exporting the model
     in the protobuf format.
 
     Args:
         num_classes: number of classes
-        is_training: set it to True when defining the model, during train
+        train_phase: set it to True when defining the model, during train
 
     Return:
-        keep_prob_: model dropput placeholder
+        is_training_: enable/disable training placeholder. Useful for evaluation
+        keep_prob_: model dropout placeholder
         images_: input images placeholder
         logits: the model output
     """
-    # model dropout keep_prob placeholder
-    keep_prob_ = tf.placeholder(tf.float32, name="keep_prob_")
+    is_training_ = tf.placeholder(tf.bool, shape=[], name="is_training_")
+    keep_prob_ = tf.placeholder(tf.float32, shape=[], name="keep_prob_")
     images_ = tf.placeholder(
         tf.float32,
         shape=[None, INPUT_SIDE, INPUT_SIDE, INPUT_DEPTH],
         name="images_")
 
     # build a graph that computes the logits predictions from the images
-    logits = get(images_, num_classes, keep_prob_, is_training=is_training)
-    return keep_prob_, images_, logits
+    logits = get(num_classes,
+                 images_,
+                 keep_prob_,
+                 is_training_,
+                 train_phase=train_phase)
+    return is_training_, keep_prob_, images_, logits
 
 
 def export_model(num_classes, session_dir, input_checkpoint, model_filename):
@@ -332,7 +336,7 @@ def export_model(num_classes, session_dir, input_checkpoint, model_filename):
         graph = tf.Graph()
         with graph.as_default(), tf.device('/cpu:0'):
             # inject in the default graph the model structure
-            define_model(num_classes, is_training=False)
+            define_model(num_classes, train_phase=False)
             # create a saver, to restore the graph in the session_dir
             saver = tf.train.Saver(tf.all_variables())
 
