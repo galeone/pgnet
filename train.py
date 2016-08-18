@@ -28,19 +28,19 @@ CSV_PATH = "~/data/PASCAL_2012_cropped"
 
 # train & validation parameters
 DISPLAY_STEP = 10
-MEASUREMENT_STEP = 20
+MEASUREMENT_STEP = 50
 STEP_FOR_EPOCH = math.ceil(pascal_input.NUM_EXAMPLES_PER_EPOCH_FOR_TRAIN /
                            pgnet.BATCH_SIZE)
 MAX_ITERATIONS = STEP_FOR_EPOCH * 500
 
 # stop when
-AVG_VALIDATION_ACCURACY_EPOCHS = 60
+AVG_VALIDATION_ACCURACY_EPOCHS = 100
 # list of average validation at the end of every epoch
 AVG_VALIDATION_ACCURACIES = [0.0
                              for _ in range(AVG_VALIDATION_ACCURACY_EPOCHS)]
 
 # tensorflow saver constant
-SAVE_MODEL_STEP = 500
+SAVE_MODEL_STEP = math.ceil(STEP_FOR_EPOCH / 2)
 
 
 def train(args):
@@ -125,8 +125,7 @@ def train(args):
 
             # create a saver: to store current computation and restore the graph
             # useful when the train step has been interrupeted
-            variables_to_save = tf.trainable_variables()
-            variables_to_save.append(global_step)
+            variables_to_save = pgnet.variables_to_save([global_step])
             saver = tf.train.Saver(variables_to_save)
 
             # tensor flow operator to initialize all the variables in a session

@@ -68,15 +68,8 @@ def main(args):
             args.test_ds, BATCH_SIZE, args.test_ds + "/ts.csv")
 
         # initialize all variables
-        """
-        all_variables = set(tf.all_variables())
-
-        # EXCEPT model variables (that has been marked as trainable)
-        model_variables = set(tf.trainable_variables())
-        init_op = tf.initialize_variables(list(all_variables -
-                                               model_variables))
-        """
-        init_op = tf.initialize_all_variables()
+        init_op = tf.group(tf.initialize_all_variables(),
+                           tf.initialize_local_variables())
 
         with tf.Session(config=tf.ConfigProto(
                 allow_soft_placement=True)) as sess:
@@ -97,6 +90,7 @@ def main(args):
                 while not coord.should_stop():
                     image_batch, label_batch = sess.run(
                         [image_queue, label_queue])
+                    print(label_batch)
 
                     top_1, top_5, pl = sess.run(
                         [top_1_op, top_5_op, predicted_labels],

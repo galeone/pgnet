@@ -251,9 +251,9 @@ def main(args):
                 group = defaultdict(lambda: defaultdict(float))
                 for pmap_y in range(probability_map.shape[1]):
                     # calculate position in the downsampled image ds
-                    ds_y = pmap_y * pgnet.CONV_STRIDE
+                    ds_y = pmap_y * pgnet.LAST_CONV_STRIDE
                     for pmap_x in range(probability_map.shape[2]):
-                        ds_x = pmap_x * pgnet.CONV_STRIDE
+                        ds_x = pmap_x * pgnet.LAST_CONV_STRIDE
 
                         if top_indices[probability_coords][
                                 0] != BACKGROUND_CLASS and top_values[

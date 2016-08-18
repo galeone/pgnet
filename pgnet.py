@@ -21,20 +21,25 @@ import tensorflow as tf
 import freeze_graph
 import utils
 
-# network input constants
-INPUT_SIDE = 184
-INPUT_DEPTH = 3
-
 # network constants
+INPUT_SIDE = 192
+INPUT_DEPTH = 3
 DOWNSAMPLING_FACTOR = 8
-LAST_KERNEL_SIDE = 23
+KERNEL_SIDE = 3
+LAST_KERNEL_SIDE = KERNEL_SIDE
+LAST_CONV_STRIDE = 1
+FC_NEURONS = 2048
 
 # train constants
-BATCH_SIZE = 32
-LEARNING_RATE = 1e-2  # Initial learning rate.
+BATCH_SIZE = 256
+LEARNING_RATE = 1e-5  # Initial learning rate.
 
 # output tensor name
 OUTPUT_TENSOR_NAME = "softmax_linear/out"
+
+# name of the collection that holds non trainable
+# but required variables for the current model
+REQUIRED_NON_TRAINABLES = 'required_vars_collection'
 
 
 # conv_layer do not normalize its output
@@ -99,52 +104,16 @@ def eq_conv_layer(input_x, kernel_side, num_kernels, strides, is_training_):
             center=True,
             scale=True,
             epsilon=0.001,
-            #activation_fn=None,
-            #updates_collections=ops.GraphKeys.UPDATE_OPS,
+            activation_fn=None,
+            updates_collections=None, # update moving mean and variance in place
             is_training=is_training_,
             reuse=None,
-            variables_collections=None,
+            # create a collections of varialbes to save (moving_mean/variance)
+            variables_collections=[REQUIRED_NON_TRAINABLES],
             outputs_collections=None,
             trainable=True,
             scope=None)
         return out
-
-
-def block(input_x, kernel_side, num_kernels, exp, is_training_):
-    """ block returns the result of 4 convolution, using the eq_conv_layer.
-    The first two layers have num_kernels kernels, the last two num_kernels*exp
-
-    Args:
-        input_x: [batch_size, height, width, depth]
-        _kernel_size: we use only square kernels. This is the side length
-        num_kernels: is the number of kernels to learn for the first conv.
-            this number crease with an exponential progression across the 4 layer, skipping ne
-            Thus:
-                layer1, layer2: num_nernels
-                layer3, layer4: num_lernels *= exp
-            num_kernels should be a power of exp, if you want exponential progression.
-        exp: see num_kernels
-        is_training_: boolean placeholder to enable/disable train changes
-    """
-    strides = [1, 1, 1, 1]
-    with tf.variable_scope("conv1"):
-        conv1 = eq_conv_layer(input_x, kernel_side, num_kernels, strides,
-                              is_training_)
-
-    with tf.variable_scope("conv2"):
-        conv2 = eq_conv_layer(conv1, kernel_side, num_kernels, strides,
-                              is_training_)
-
-    num_kernels *= exp
-    with tf.variable_scope("conv3"):
-        conv3 = eq_conv_layer(conv2, kernel_side, num_kernels, strides,
-                              is_training_)
-
-    with tf.variable_scope("conv4"):
-        conv4 = eq_conv_layer(conv3, kernel_side, num_kernels, strides,
-                              is_training_)
-
-    return conv4
 
 
 def get(num_classes, images_, keep_prob_, is_training_, train_phase=False):
@@ -169,69 +138,88 @@ def get(num_classes, images_, keep_prob_, is_training_, train_phase=False):
     if train_phase is False:
         is_training_ = False
 
+    # 192x192x3
     print(images_)
 
-    kernel_side = 3
     num_kernels = 2**7  #128
-    with tf.variable_scope("conv1"):
-        conv1 = eq_conv_layer(images_, kernel_side, num_kernels, [1, 2, 2, 1],
-                              is_training_)
-    #output: 92x92x128, filters: (3x3x3)x128
-    print(conv1)
+    with tf.variable_scope(str(num_kernels)):
+        with tf.variable_scope("conv1"):
+            conv1 = eq_conv_layer(images_, KERNEL_SIDE, num_kernels,
+                                  [1, 2, 2, 1], is_training_)
+        #output: 96x96x128, filters: (3x3x3)x128
+        print(conv1)
 
-    num_kernels *= 2
-    with tf.variable_scope("conv2"):
-        conv2 = eq_conv_layer(conv1, kernel_side, num_kernels, [1, 2, 2, 1],
-                              is_training_)
-    #output: 46x46x256, filters: (3x3x128)x256
-    print(conv2)
+        with tf.variable_scope("conv2"):
+            conv2 = eq_conv_layer(conv1, KERNEL_SIDE, num_kernels,
+                                  [1, 2, 2, 1], is_training_)
+        #output: 48x48x128, filters: (3x3x128)x128
+        print(conv2)
 
-    with tf.variable_scope("block1"):
-        block1 = block(conv2, kernel_side, num_kernels, 2, is_training_)
-        num_kernels *= 2
-    #output: 46x46x512. filters: (3x3x256)x256 -> (3x3x256)x256 -> (3x3x256)x512 -> (3x3x512)x512
-    print(block1)
+    num_kernels *= 2  #256
+    with tf.variable_scope(str(num_kernels)):
+        with tf.variable_scope("conv3"):
+            conv3 = eq_conv_layer(conv2, KERNEL_SIDE, num_kernels,
+                                  [1, 2, 2, 1], is_training_)
 
-    with tf.variable_scope("conv3"):
-        conv3 = eq_conv_layer(block1, kernel_side, num_kernels, [1, 2, 2, 1],
-                              is_training_)
-    #output: 23x23x512. filters: (3x3x512)x512
+        #output: 24x24x256, filters: (3x3x128)x256
+        print(conv3)
+
+        with tf.variable_scope("conv4"):
+            conv4 = eq_conv_layer(conv3, KERNEL_SIDE, num_kernels,
+                                  [1, 2, 2, 1], is_training_)
+        #output: 12x12x256, filters: (3x3x128)x256
+        print(conv4)
+
+    num_kernels *= 2  #512
+    with tf.variable_scope(str(num_kernels)):
+        with tf.variable_scope("conv5"):
+            conv5 = eq_conv_layer(conv4, KERNEL_SIDE, num_kernels,
+                                  [1, 2, 2, 1], is_training_)
+        #output: 6x6x512, filters: (3x3x256)x512
+        print(conv5)
+
+        with tf.variable_scope("conv6"):
+            conv6 = eq_conv_layer(conv5, KERNEL_SIDE, num_kernels,
+                                  [1, 2, 2, 1], is_training_)
+        #output: 3x3x512, filters: (3x3x512)x512
+        print(conv6)
 
     # fully convolutional layer
     with tf.variable_scope("fc1"):
         fc1 = conv_layer(
-            conv3, [LAST_KERNEL_SIDE, LAST_KERNEL_SIDE, num_kernels, 1024],
+            conv6,
+            [LAST_KERNEL_SIDE, LAST_KERNEL_SIDE, num_kernels, FC_NEURONS],
             "VALID", [1, 1, 1, 1])
-        # output: 1x1xNUM_NEURONS
         # remove dependece from the keep_prob_ placeholder when the model
         # is not in train phase
         if train_phase is False:
-            dropout1 = tf.nn.dropout(fc1, 1.0, name="dropout")
+            dropout1 = fc1
         else:
             dropout1 = tf.nn.dropout(fc1, keep_prob_, name="dropout")
 
-        print(dropout1)
-        # output: 1x1xNUM_NEURONS
+    print(dropout1)
+    # output: 1x1xNUM_NEURONS
 
     with tf.variable_scope("fc2"):
-        fc2 = conv_layer(dropout1, [1, 1, 1024, 1024], "VALID", [1, 1, 1, 1])
+        fc2 = conv_layer(dropout1, [1, 1, FC_NEURONS, FC_NEURONS], "VALID",
+                         [1, 1, 1, 1])
         # output: 1x1xNUM_NEURONS
         # remove dependece from the keep_prob_ placeholder when the model
         # is not in train phase
         if train_phase is False:
-            dropout2 = tf.nn.dropout(fc2, 1.0, name="dropout")
+            dropout2 = fc2
         else:
             dropout2 = tf.nn.dropout(fc2, keep_prob_, name="dropout")
 
-        print(dropout2)
-        # output: 1x1xNUM_NEURONS
+    print(dropout2)
+    # output: 1x1xNUM_NEURONS
 
     with tf.variable_scope("softmax_linear"):
-        out = conv_layer(dropout2, [1, 1, 1024, num_classes], "VALID",
+        out = conv_layer(dropout2, [1, 1, FC_NEURONS, num_classes], "VALID",
                          [1, 1, 1, 1])
-        # output: (BATCH_SIZE)x1x1xnum_classes if the input has been properly scaled
-        # otherwise is a map
-        print(out)
+    # output: (BATCH_SIZE)x1x1xnum_classes if the input has been properly scaled
+    # otherwise is a map
+    print(out)
 
     return out
 
@@ -281,6 +269,19 @@ def train(loss_op, global_step):
         minimizer = optimizer.minimize(loss_op, global_step=global_step)
 
     return minimizer
+
+
+def variables_to_save(addlist):
+    """Create a list of all trained variables and required variables of the model.
+    Appends to the list, the addlist passed as argument.
+
+    Args:
+        addlist: [list, of, variables, to, save]
+    Returns:
+        a a list of variables"""
+
+    return tf.trainable_variables() + tf.get_collection_ref(
+        REQUIRED_NON_TRAINABLES) + addlist
 
 
 def define_model(num_classes, train_phase):
