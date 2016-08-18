@@ -117,9 +117,8 @@ def main(args):
                 precision_at_1 = count_top_1 / total_sample_count
                 recall_at_5 = count_top_5 / total_sample_count
 
-                print(
-                    'precision @ 1 = {} recall @ 5 = {} [{} examples]'.format(
-                        precision_at_1, recall_at_5, total_sample_count))
+                print('precision @ 1 = {} recall @ 5 = {} [{} examples]'.
+                      format(precision_at_1, recall_at_5, total_sample_count))
                 print("Accuracy per class: ")
                 # TODO
             finally:

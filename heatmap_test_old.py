@@ -450,10 +450,10 @@ def main(args):
 
                                             pair = (l_rect, promotion)
                                             print(
-                                                'Update {} to {}. [global {}, local: {}]'.format(
-                                                    unique_boxes[box_coord][
-                                                        local_label][idx],
-                                                    pair, g_rect, l_rect))
+                                                'Update {} to {}. [global {}, local: {}]'.
+                                                format(unique_boxes[box_coord][
+                                                    local_label][idx], pair,
+                                                       g_rect, l_rect))
 
                                             # update probability
                                             unique_boxes[box_coord][
