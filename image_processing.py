@@ -81,23 +81,23 @@ def distort_image(image, input_width, input_height, output_side):
     def fn1():
         """Applies random brightness, saturation, hue, contrast"""
         distorted_image = tf.image.random_brightness(
-            flipped_image, max_delta=0.4)
+            flipped_image, max_delta=32. / 255.)
         distorted_image = tf.image.random_saturation(
-            distorted_image, lower=0.1, upper=0.3)
-        distorted_image = tf.image.random_hue(distorted_image, max_delta=0.1)
+            distorted_image, lower=0.5, upper=1.5)
+        distorted_image = tf.image.random_hue(distorted_image, max_delta=0.2)
         distorted_image = tf.image.random_contrast(
-            distorted_image, lower=0.1, upper=0.3)
+            distorted_image, lower=0.5, upper=1.5)
         return distorted_image
 
     def fn2():
         """Applies random brightness, contrast, saturation, hue"""
         distorted_image = tf.image.random_brightness(
-            flipped_image, max_delta=0.4)
+            flipped_image, max_delta=32. / 255.)
         distorted_image = tf.image.random_contrast(
-            distorted_image, lower=0.1, upper=0.3)
+            distorted_image, lower=0.5, upper=1.5)
         distorted_image = tf.image.random_saturation(
-            distorted_image, lower=0.1, upper=0.3)
-        distorted_image = tf.image.random_hue(distorted_image, max_delta=0.1)
+            distorted_image, lower=0.5, upper=1.5)
+        distorted_image = tf.image.random_hue(distorted_image, max_delta=0.2)
 
         return distorted_image
 

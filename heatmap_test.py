@@ -386,7 +386,7 @@ def main(args):
 
                         roi_label = PASCAL_LABELS[roi_top_indices[0]]
                         if label == roi_label:
-                            avg_prob = (rect_prob[1] + roi_top_probs[0])/2
+                            avg_prob = (rect_prob[1] + roi_top_probs[0]) / 2
 
                             print(label, rect_prob[1], relative_freq,
                                   roi_top_probs[0], avg_prob)
