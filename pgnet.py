@@ -171,15 +171,14 @@ def get(num_classes, images_, keep_prob_, is_training_, train_phase=False):
 
     print(images_)
 
-    kernel_side = 11
+    kernel_side = 3
     num_kernels = 2**7  #128
     with tf.variable_scope("conv1"):
         conv1 = eq_conv_layer(images_, kernel_side, num_kernels, [1, 2, 2, 1],
                               is_training_)
-    #output: 92x92x128, filters: (11x11x3)x128
+    #output: 92x92x128, filters: (3x3x3)x128
     print(conv1)
 
-    kernel_side = 3
     num_kernels *= 2
     with tf.variable_scope("conv2"):
         conv2 = eq_conv_layer(conv1, kernel_side, num_kernels, [1, 2, 2, 1],
