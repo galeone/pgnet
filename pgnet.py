@@ -35,7 +35,7 @@ FC_NEURONS = 2048
 
 # train constants
 BATCH_SIZE = 256
-LEARNING_RATE = 1e-4  # Initial learning rate.
+LEARNING_RATE = 1e-5  # Initial learning rate.
 
 # output tensor name
 OUTPUT_TENSOR_NAME = "softmax_linear/out"
@@ -143,7 +143,7 @@ def eq_conv_layer(input_x, kernel_side, num_kernels, strides, is_training_):
         return out
 
 
-def atrous_layer(input_x, atrous_kernel_shape, rate, padding, is_training_):
+def atrous_layer(input_x, atrous_kernel_shape, rate, padding):
     """
     Returns the result of:
     ReLU(atrous_conv2d(x, kernels, rate, padding=padding) + bias).
@@ -164,7 +164,6 @@ def atrous_layer(input_x, atrous_kernel_shape, rate, padding, is_training_):
         atrous_kernel_shape: the shape of W [kernel_height, kernel_width, kernel_depth, num_kernels]
         rate: the atrous_conv2d rate parameter
         padding: "VALID" | "SAME"
-        is_training_: placeholder to enable/disable train changes
     """
 
     with tf.variable_scope("atrous_conv_layer"):
@@ -173,13 +172,10 @@ def atrous_layer(input_x, atrous_kernel_shape, rate, padding, is_training_):
         kernels = utils.kernels(atrous_kernel_shape, "kernels")
         bias = utils.bias([num_kernels], "bias")
 
-        return batch_norm(tf.nn.relu(
+        return tf.nn.relu(
             tf.add(tf.nn.atrous_conv2d(
-                input_x,
-                kernels,
-                rate=rate,  # rate = 2 means 1 hole
-                padding=padding),
-                   bias)), is_training_)
+                input_x, kernels, rate=rate, padding=padding),
+                   bias))
 
 
 def get(num_classes, images_, keep_prob_, is_training_, train_phase=False):
@@ -242,9 +238,9 @@ def get(num_classes, images_, keep_prob_, is_training_, train_phase=False):
         print(conv3)
         # 25x25x512
         with tf.variable_scope("conv4"):
-            conv4 = atrous_layer(
-                conv3, [atrous_kernel_side, atrous_kernel_side, num_kernels,
-                        FC_NEURONS], rate, 'VALID', is_training_)
+            conv4 = atrous_layer(conv3,
+                                 [atrous_kernel_side, atrous_kernel_side,
+                                  num_kernels, FC_NEURONS], rate, 'VALID')
         print(conv4)
         # output: 1x1xFC_NEURONS, filters: (25x25x512)x512, but parameters: (5x5x512)x512
         # combine 512 features (extracted from the 25x25x512 filters) into FC_NEURONS
