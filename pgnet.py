@@ -77,12 +77,12 @@ def conv_layer(input_x, kernel_shape, padding, strides):
     Creates kernels (name=kernel), bias (name=bias) and relates summaries.
 
     Args:
-        input_x: 4-D input tensor. shape = [batch, height, width, depth]
+        input_x: 4-D input tensor. shape = (batch, height, width, depth)
         kernel_shape: the shape of W, used in convolution as kernels:
-                [kernel_height, kernel_width, kernel_depth, num_kernels]
+                (kernel_height, kernel_width, kernel_depth, num_kernels)
         name: the op name
         padding; "VALID" | "SAME"
-        stride: 4-d tensor, like: [1, 2, 2, 1]
+        stride: 4-d tensor, like: (1, 2, 2, 1)
     """
 
     num_kernels = kernel_shape[3]
@@ -103,13 +103,13 @@ def prepad(input_x, kernel_side):
     a convolution of input_x padded, with kernel side, returns an output
     with the same size of input_x.
     Args:
-        input_x: 4d tensor [batch_size, widht, height, depth]
+        input_x: 4d tensor (batch_size, widht, height, depth)
         kernel_side: the side of the convolutional kernel
     """
     # pad the input with the right amount of padding
     pad_amount = int((kernel_side - 1) / 2)
-    input_padded = tf.pad(input_x, [[0, 0], [pad_amount, pad_amount],
-                                    [pad_amount, pad_amount], [0, 0]],
+    input_padded = tf.pad(input_x, ((0, 0), (pad_amount, pad_amount),
+                                    (pad_amount, pad_amount), (0, 0)),
                           name="input_padded")
     return input_padded
 
@@ -124,15 +124,15 @@ def eq_conv_layer(input_x, kernel_side, num_kernels, strides, is_training_):
         input_x: image batch
         kernel_side: kernel side
         num_kernels: the number of the kernels to learn
-        strides: 4d tensor like: [1, stride, stride, 1]
+        strides: 4d tensor like: (1, stride, stride, 1)
         is_training_: boolean placeholder to enable/disable train changes
     Returns:
         batch_norm(conv_layer(input_padded))
     """
 
     with tf.variable_scope("eq_conv_layer"):
-        kernel_shape = [kernel_side, kernel_side, input_x.get_shape()[3].value,
-                        num_kernels]
+        kernel_shape = (kernel_side, kernel_side, input_x.get_shape()[3].value,
+                        num_kernels)
 
         input_padded = prepad(input_x, kernel_side)
         print(input_padded)
@@ -143,15 +143,56 @@ def eq_conv_layer(input_x, kernel_side, num_kernels, strides, is_training_):
         return out
 
 
-def atrous_layer(input_x, atrous_kernel_shape, rate, padding):
+def atrous_conv2d(value, filters, rate, name):
+    """ Returns the result of a convolution with holes from value and filters.
+    Do not use the tensorflow implementation because of issues with shape definitio
+    of the result. The semantic is the same.
+    Uses only the "VALID" padding"""
+
+    pad_top = 0
+    pad_bottom = 0
+    pad_left = 0
+    pad_right = 0
+
+    in_height = value.get_shape()[1].value + pad_top + pad_bottom
+    in_width = value.get_shape()[2].value + pad_left + pad_right
+
+    # More padding so that rate divides the height and width of the input.
+    pad_bottom_extra = (rate - in_height % rate) % rate
+    pad_right_extra = (rate - in_width % rate) % rate
+
+    # The paddings argument to space_to_batch includes both padding components.
+    space_to_batch_pad = ((pad_top, pad_bottom + pad_bottom_extra),
+                          (pad_left, pad_right + pad_right_extra))
+
+    value = tf.space_to_batch(
+        input=value, paddings=space_to_batch_pad, block_size=rate)
+
+    value = tf.nn.conv2d(
+        input=value,
+        filter=filters,
+        strides=(1, 1, 1, 1),
+        padding="VALID",
+        name=name)
+
+    # The crops argument to batch_to_space is just the extra padding component.
+    batch_to_space_crop = ((0, pad_bottom_extra), (0, pad_right_extra))
+
+    value = tf.batch_to_space(
+        input=value, crops=batch_to_space_crop, block_size=rate)
+
+    return value
+
+
+def atrous_layer(input_x, atrous_kernel_shape, rate, is_training_):
     """
     Returns the result of:
-    ReLU(atrous_conv2d(x, kernels, rate, padding=padding) + bias).
+    ReLU(atrous_conv2d(x, kernels, rate, padding=VALID) + bias).
     Creates kernels (name=kernel), bias (name=bias) and relates summaries.
 
-    output[b, i, j, k] = sum_{di, dj, q} filters[di, dj, q, k] *
-         value[b, i + rate * di, j + rate * dj, q]
-    Thus: if rate=1, atrous_conv2d = conv2d with stride [1,1,1,1]
+    output(b, i, j, k) = sum_{di, dj, q} filters(di, dj, q, k) *
+         value(b, i + rate * di, j + rate * dj, q)
+    Thus: if rate=1, atrous_conv2d = conv2d with stride (1,1,1,1)
 
     Supposing a 3x3 filter:
     In that case, a (3+rate)x(3+rate)x num_kernels is convolved with the input
@@ -160,10 +201,10 @@ def atrous_layer(input_x, atrous_kernel_shape, rate, padding):
     eg: 5 = (filter_h) + (filter_h -1)*(rate -1)
 
     Args:
-        x: 4-D input tensor. shape = [batch, height, width, depth]
-        atrous_kernel_shape: the shape of W [kernel_height, kernel_width, kernel_depth, num_kernels]
+        x: 4-D input tensor. shape = (batch, height, width, depth)
+        atrous_kernel_shape: the shape of W (kernel_height, kernel_width, kernel_depth, num_kernels)
         rate: the atrous_conv2d rate parameter
-        padding: "VALID" | "SAME"
+        is_training_: placeholder or boolean variable to set to True when training
     """
 
     with tf.variable_scope("atrous_conv_layer"):
@@ -172,17 +213,19 @@ def atrous_layer(input_x, atrous_kernel_shape, rate, padding):
         kernels = utils.kernels(atrous_kernel_shape, "kernels")
         bias = utils.bias([num_kernels], "bias")
 
-        return tf.nn.relu(
-            tf.add(tf.nn.atrous_conv2d(
-                input_x, kernels, rate=rate, padding=padding),
-                   bias))
+        return batch_norm(
+            tf.nn.relu(
+                tf.add(atrous_conv2d(
+                    input_x, kernels, rate=rate, name="atrous_conv"),
+                       bias)),
+            is_training_)
 
 
 def get(num_classes, images_, keep_prob_, is_training_, train_phase=False):
     """
     Args:
         num_classes: is the number of classes that the network will classify
-        images_: is a tensor placeholder with shape [-1, widht, height, depth]
+        images_: is a tensor placeholder with shape (-1, widht, height, depth)
         keep_prob_: dropout probability
         is_training_: placeholder to enable/disable train changes
         train_phase: set it to True when training.
@@ -207,7 +250,7 @@ def get(num_classes, images_, keep_prob_, is_training_, train_phase=False):
     with tf.variable_scope(str(num_kernels)):
         with tf.variable_scope("conv1"):
             conv1 = eq_conv_layer(images_, KERNEL_SIDE, num_kernels,
-                                  [1, 2, 2, 1], is_training_)
+                                  (1, 2, 2, 1), is_training_)
         #output: 92x92x128, filters: (3x3x3)x128
         print(conv1)
 
@@ -215,7 +258,7 @@ def get(num_classes, images_, keep_prob_, is_training_, train_phase=False):
     with tf.variable_scope(str(num_kernels)):
         with tf.variable_scope("conv2"):
             conv2 = eq_conv_layer(conv1, KERNEL_SIDE, num_kernels,
-                                  [1, 2, 2, 1], is_training_)
+                                  (1, 2, 2, 1), is_training_)
         #output: 46x46x256, filters: (3x3x128)x256
         print(conv2)
 
@@ -223,7 +266,7 @@ def get(num_classes, images_, keep_prob_, is_training_, train_phase=False):
     with tf.variable_scope(str(num_kernels)):
         with tf.variable_scope("conv3"):
             conv3 = eq_conv_layer(conv2, KERNEL_SIDE, num_kernels,
-                                  [1, 2, 2, 1], is_training_)
+                                  (1, 2, 2, 1), is_training_)
         #output: 23x23x512, filters: (3x3x256)x512
         print(conv3)
 
@@ -238,17 +281,17 @@ def get(num_classes, images_, keep_prob_, is_training_, train_phase=False):
         print(conv3)
         # 25x25x512
         with tf.variable_scope("conv4"):
-            conv4 = atrous_layer(conv3,
-                                 [atrous_kernel_side, atrous_kernel_side,
-                                  num_kernels, FC_NEURONS], rate, 'VALID')
+            conv4 = atrous_layer(
+                conv3, (atrous_kernel_side, atrous_kernel_side, num_kernels,
+                        FC_NEURONS), rate, is_training_)
         print(conv4)
         # output: 1x1xFC_NEURONS, filters: (25x25x512)x512, but parameters: (5x5x512)x512
         # combine 512 features (extracted from the 25x25x512 filters) into FC_NEURONS
 
     # 1x1xDepth convolutions, FC equivalent
     with tf.variable_scope("fc1"):
-        fc1 = conv_layer(conv4, [1, 1, FC_NEURONS, FC_NEURONS], "VALID",
-                         [1, 1, 1, 1])
+        fc1 = conv_layer(conv4, (1, 1, FC_NEURONS, FC_NEURONS), "VALID",
+                         (1, 1, 1, 1))
         # remove dependece from the keep_prob_ placeholder when the model
         # is not in train phase
         if train_phase is False:
@@ -260,8 +303,8 @@ def get(num_classes, images_, keep_prob_, is_training_, train_phase=False):
     # output: 1x1xNUM_NEURONS
 
     with tf.variable_scope("fc2"):
-        fc2 = conv_layer(dropout1, [1, 1, FC_NEURONS, FC_NEURONS], "VALID",
-                         [1, 1, 1, 1])
+        fc2 = conv_layer(dropout1, (1, 1, FC_NEURONS, FC_NEURONS), "VALID",
+                         (1, 1, 1, 1))
         # output: 1x1xNUM_NEURONS
         # remove dependece from the keep_prob_ placeholder when the model
         # is not in train phase
@@ -274,8 +317,8 @@ def get(num_classes, images_, keep_prob_, is_training_, train_phase=False):
     # output: 1x1xNUM_NEURONS
 
     with tf.variable_scope("softmax_linear"):
-        out = conv_layer(dropout2, [1, 1, FC_NEURONS, num_classes], "VALID",
-                         [1, 1, 1, 1])
+        out = conv_layer(dropout2, (1, 1, FC_NEURONS, num_classes), "VALID",
+                         (1, 1, 1, 1))
     # output: (BATCH_SIZE)x1x1xnum_classes if the input has been properly scaled
     # otherwise is a map
     print(out)
@@ -297,7 +340,7 @@ def loss(logits, labels):
         # remove dimension of size 1 from logits tensor
         # since logits tensor is: (BATCH_SIZE)x1x1xnum_classes
         # remove dimension in position 1 and 2
-        logits = tf.squeeze(logits, [1, 2])
+        logits = tf.squeeze(logits, (1, 2))
         labels = tf.cast(labels, tf.int64)
 
         # cross_entropy across the batch
@@ -335,7 +378,7 @@ def variables_to_save(addlist):
     Appends to the list, the addlist passed as argument.
 
     Args:
-        addlist: [list, of, variables, to, save]
+        addlist: (list, of, variables, to, save)
     Returns:
         a a list of variables"""
 
@@ -358,11 +401,11 @@ def define_model(num_classes, train_phase):
         images_: input images placeholder
         logits: the model output
     """
-    is_training_ = tf.placeholder(tf.bool, shape=[], name="is_training_")
-    keep_prob_ = tf.placeholder(tf.float32, shape=[], name="keep_prob_")
+    is_training_ = tf.placeholder(tf.bool, shape=(), name="is_training_")
+    keep_prob_ = tf.placeholder(tf.float32, shape=(), name="keep_prob_")
     images_ = tf.placeholder(
         tf.float32,
-        shape=[None, INPUT_SIDE, INPUT_SIDE, INPUT_DEPTH],
+        shape=(None, INPUT_SIDE, INPUT_SIDE, INPUT_DEPTH),
         name="images_")
 
     # build a graph that computes the logits predictions from the images
