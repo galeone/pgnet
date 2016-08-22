@@ -34,7 +34,7 @@ DOWNSAMPLING_FACTOR = math.ceil(INPUT_SIDE / LAST_KERNEL_SIDE)
 FC_NEURONS = 2048
 
 # train constants
-BATCH_SIZE = 256
+BATCH_SIZE = 64
 LEARNING_RATE = 1e-5  # Initial learning rate.
 
 # output tensor name
@@ -250,47 +250,66 @@ def get(num_classes, images_, keep_prob_, is_training_, train_phase=False):
     with tf.variable_scope(str(num_kernels)):
         with tf.variable_scope("conv1"):
             conv1 = eq_conv_layer(images_, KERNEL_SIDE, num_kernels,
-                                  (1, 2, 2, 1), is_training_)
-        #output: 92x92x128, filters: (3x3x3)x128
+                                  (1, 1, 1, 1), is_training_)
         print(conv1)
+        #output: 184x184x128, filters: (3x3x3)x128
 
-    num_kernels *= 2  #256
-    with tf.variable_scope(str(num_kernels)):
         with tf.variable_scope("conv2"):
             conv2 = eq_conv_layer(conv1, KERNEL_SIDE, num_kernels,
                                   (1, 2, 2, 1), is_training_)
-        #output: 46x46x256, filters: (3x3x128)x256
+        #output: 92x92x128, filters: (3x3x128)x128
         print(conv2)
 
-    num_kernels *= 2  #512
+    num_kernels *= 2  #256
     with tf.variable_scope(str(num_kernels)):
         with tf.variable_scope("conv3"):
             conv3 = eq_conv_layer(conv2, KERNEL_SIDE, num_kernels,
-                                  (1, 2, 2, 1), is_training_)
-        #output: 23x23x512, filters: (3x3x256)x512
+                                  (1, 1, 1, 1), is_training_)
         print(conv3)
+        #output: 92x92x256, filters: (3x3x128)x256
 
-    atrous_kernel_side = 5
-    rate = 6
-    # equivalent side = 5 + (5-1)*(6-1) = 25
-    # = LAST_KERNEL_SIDE. But the paremeters are not 25x25, but only 5x5
-    with tf.variable_scope('last'):
-        # if the dummy filter is 3, pad amount is 2P = 2 => P=1 per side
-        conv3 = prepad(conv3, 3)
-
-        print(conv3)
-        # 25x25x512
         with tf.variable_scope("conv4"):
-            conv4 = atrous_layer(
-                conv3, (atrous_kernel_side, atrous_kernel_side, num_kernels,
-                        FC_NEURONS), rate, is_training_)
+            conv4 = eq_conv_layer(conv3, KERNEL_SIDE, num_kernels,
+                                  (1, 2, 2, 1), is_training_)
+        #output: 46x46x256, filters: (3x3x256)x256
         print(conv4)
+
+    num_kernels *= 2  #512
+    with tf.variable_scope(str(num_kernels)):
+        with tf.variable_scope("conv5"):
+            conv5 = eq_conv_layer(conv4, KERNEL_SIDE, num_kernels,
+                                  (1, 1, 1, 1), is_training_)
+        print(conv5)
+        #output: 46x46x512, filters: (3x3x256)x512
+
+        with tf.variable_scope("conv6"):
+            conv6 = eq_conv_layer(conv5, KERNEL_SIDE, num_kernels,
+                                  (1, 2, 2, 1), is_training_)
+        #output: 23x23x512, filters: (3x3x512)x512
+        print(conv6)
+
+        atrous_kernel_side = 5
+        rate = 6
+        # equivalent side = 5 + (5-1)*(6-1) = 25
+        # = LAST_KERNEL_SIDE. But the paremeters are not 25x25, but only 5x5
+        with tf.variable_scope("conv7"):
+            # if the dummy filter is 3, pad amount is 2P = 2 => P=1 per side
+            conv6_prepad = prepad(conv6, 3)
+
+            print(conv6_prepad)
+            # 25x25x512
+
+            conv7 = atrous_layer(conv6_prepad,
+                                 (atrous_kernel_side, atrous_kernel_side,
+                                  num_kernels, FC_NEURONS), rate, is_training_)
+        print(conv7)
         # output: 1x1xFC_NEURONS, filters: (25x25x512)x512, but parameters: (5x5x512)x512
         # combine 512 features (extracted from the 25x25x512 filters) into FC_NEURONS
 
-    # 1x1xDepth convolutions, FC equivalent
+        # 1x1xDepth convolutions, FC equivalent
+
     with tf.variable_scope("fc1"):
-        fc1 = conv_layer(conv4, (1, 1, FC_NEURONS, FC_NEURONS), "VALID",
+        fc1 = conv_layer(conv7, (1, 1, FC_NEURONS, FC_NEURONS), "VALID",
                          (1, 1, 1, 1))
         # remove dependece from the keep_prob_ placeholder when the model
         # is not in train phase
