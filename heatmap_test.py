@@ -29,7 +29,7 @@ PASCAL_LABELS = ["aeroplane", "bicycle", "bird", "boat", "bottle", "bus",
                  "train", "tvmonitor"]
 
 # detection constants
-INPUT_SIDE = pgnet.INPUT_SIDE + pgnet.DOWNSAMPLING_FACTOR * 20
+INPUT_SIDE = pgnet.INPUT_SIDE + pgnet.DOWNSAMPLING_FACTOR * pgnet.LAST_CONV_INPUT_STRIDE * 4
 OUTPUT_SIDE = INPUT_SIDE / pgnet.DOWNSAMPLING_FACTOR - pgnet.LAST_KERNEL_SIDE + 1
 LOOKED_POS = OUTPUT_SIDE**2
 MIN_PROB = 0.6
@@ -197,6 +197,7 @@ def main(args):
 
         # (?, n, n, NUM_CLASSES) tensor
         logits = graph.get_tensor_by_name(pgnet.OUTPUT_TENSOR_NAME + ":0")
+
         # each cell in coords (batch_position, i, j) -> is a probability vector
         per_roi_probabilities = tf.nn.softmax(
             tf.reshape(logits, [-1, num_classes]))
@@ -251,9 +252,9 @@ def main(args):
                 group = defaultdict(lambda: defaultdict(float))
                 for pmap_y in range(probability_map.shape[1]):
                     # calculate position in the downsampled image ds
-                    ds_y = pmap_y * pgnet.LAST_CONV_STRIDE
+                    ds_y = pmap_y * pgnet.LAST_CONV_OUTPUT_STRIDE
                     for pmap_x in range(probability_map.shape[2]):
-                        ds_x = pmap_x * pgnet.LAST_CONV_STRIDE
+                        ds_x = pmap_x * pgnet.LAST_CONV_OUTPUT_STRIDE
 
                         if top_indices[probability_coords][
                                 0] != BACKGROUND_CLASS and top_values[
