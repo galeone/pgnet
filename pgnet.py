@@ -27,8 +27,12 @@ INPUT_SIDE = 184
 INPUT_DEPTH = 3
 
 KERNEL_SIDE = 3
+
+# Last convolution is an atrous convolution
 LAST_KERNEL_SIDE = 25
-LAST_CONV_STRIDE = 1
+LAST_CONV_OUTPUT_STRIDE = 1
+LAST_CONV_INPUT_STRIDE = 6  # atrous conv rate
+REAL_LAST_KERNEL_SIDE = 5
 
 DOWNSAMPLING_FACTOR = math.ceil(INPUT_SIDE / LAST_KERNEL_SIDE)
 FC_NEURONS = 2048
@@ -145,9 +149,13 @@ def eq_conv_layer(input_x, kernel_side, num_kernels, strides, is_training_):
 
 def atrous_conv2d(value, filters, rate, name):
     """ Returns the result of a convolution with holes from value and filters.
-    Do not use the tensorflow implementation because of issues with shape definitio
+    Do not use the tensorflow implementation because of issues with shape definition
     of the result. The semantic is the same.
-    Uses only the "VALID" padding"""
+    It uses only the "VALID" padding.
+
+    Warning: this implementation is PGNet specific. It's used only to define the last
+    convolutional layer and therefore depends on pgnet constants
+    """
 
     pad_top = 0
     pad_bottom = 0
@@ -171,7 +179,7 @@ def atrous_conv2d(value, filters, rate, name):
     value = tf.nn.conv2d(
         input=value,
         filter=filters,
-        strides=(1, 1, 1, 1),
+        strides=(1, LAST_CONV_OUTPUT_STRIDE, LAST_CONV_OUTPUT_STRIDE, 1),
         padding="VALID",
         name=name)
 
@@ -288,8 +296,6 @@ def get(num_classes, images_, keep_prob_, is_training_, train_phase=False):
         #output: 23x23x512, filters: (3x3x512)x512
         print(conv6)
 
-        atrous_kernel_side = 5
-        rate = 6
         # equivalent side = 5 + (5-1)*(6-1) = 25
         # = LAST_KERNEL_SIDE. But the paremeters are not 25x25, but only 5x5
         with tf.variable_scope("conv7"):
@@ -299,9 +305,9 @@ def get(num_classes, images_, keep_prob_, is_training_, train_phase=False):
             print(conv6_prepad)
             # 25x25x512
 
-            conv7 = atrous_layer(conv6_prepad,
-                                 (atrous_kernel_side, atrous_kernel_side,
-                                  num_kernels, FC_NEURONS), rate, is_training_)
+            conv7 = atrous_layer(conv6_prepad, (
+                REAL_LAST_KERNEL_SIDE, REAL_LAST_KERNEL_SIDE, num_kernels,
+                FC_NEURONS), LAST_CONV_INPUT_STRIDE, is_training_)
         print(conv7)
         # output: 1x1xFC_NEURONS, filters: (25x25x512)x512, but parameters: (5x5x512)x512
         # combine 512 features (extracted from the 25x25x512 filters) into FC_NEURONS
