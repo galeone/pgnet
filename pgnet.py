@@ -25,21 +25,21 @@ import utils
 # network constants
 INPUT_SIDE = 184
 INPUT_DEPTH = 3
-
 KERNEL_SIDE = 3
 
 # Last convolution is an atrous convolution
-LAST_KERNEL_SIDE = 25
+# 3 + (3-1)*(r-1) = 23 -> 3 + 2r -2 = 23 -> 2r = 23 -1 -> r = 11
+LAST_KERNEL_SIDE = 23
 LAST_CONV_OUTPUT_STRIDE = 1
-LAST_CONV_INPUT_STRIDE = 6  # atrous conv rate
-REAL_LAST_KERNEL_SIDE = 5
+LAST_CONV_INPUT_STRIDE = 11  # atrous conv rate
+REAL_LAST_KERNEL_SIDE = 3
 
 DOWNSAMPLING_FACTOR = math.ceil(INPUT_SIDE / LAST_KERNEL_SIDE)
-FC_NEURONS = 2048
+FC_NEURONS = 1024
 
 # train constants
-BATCH_SIZE = 64
-LEARNING_RATE = 1e-5  # Initial learning rate.
+BATCH_SIZE = 128
+LEARNING_RATE = 1e-3
 
 # output tensor name
 OUTPUT_TENSOR_NAME = "softmax_linear/out"
@@ -254,27 +254,39 @@ def get(num_classes, images_, keep_prob_, is_training_, train_phase=False):
     # 184x184x3
     print(images_)
 
-    num_kernels = 2**7  #128
+    num_kernels = 2**6  #64
     with tf.variable_scope(str(num_kernels)):
         with tf.variable_scope("conv1"):
             conv1 = eq_conv_layer(images_, KERNEL_SIDE, num_kernels,
                                   (1, 1, 1, 1), is_training_)
-        print(conv1)
-        #output: 184x184x128, filters: (3x3x3)x128
+            print(conv1)
+            #output: 184x184x128, filters: (3x3x3)x64
+
+        with tf.variable_scope("conv1.1"):
+            conv1 = eq_conv_layer(conv1, KERNEL_SIDE, num_kernels,
+                                  (1, 1, 1, 1), is_training_)
+            #output: 184x184x128, filters: (3x3x64)x64
+            print(conv1)
 
         with tf.variable_scope("conv2"):
             conv2 = eq_conv_layer(conv1, KERNEL_SIDE, num_kernels,
                                   (1, 2, 2, 1), is_training_)
-        #output: 92x92x128, filters: (3x3x128)x128
-        print(conv2)
+            #output: 92x92x64, filters: (3x3x64)x64
+            print(conv2)
 
-    num_kernels *= 2  #256
+    num_kernels *= 2  #128
     with tf.variable_scope(str(num_kernels)):
         with tf.variable_scope("conv3"):
             conv3 = eq_conv_layer(conv2, KERNEL_SIDE, num_kernels,
                                   (1, 1, 1, 1), is_training_)
-        print(conv3)
-        #output: 92x92x256, filters: (3x3x128)x256
+            print(conv3)
+            #output: 92x92x64, filters: (3x3x64)x128
+
+        with tf.variable_scope("conv3.1"):
+            conv3 = eq_conv_layer(conv3, KERNEL_SIDE, num_kernels,
+                                  (1, 1, 1, 1), is_training_)
+            print(conv3)
+            #output: 92x92x64, filters: (3x3x128)x128
 
         with tf.variable_scope("conv4"):
             conv4 = eq_conv_layer(conv3, KERNEL_SIDE, num_kernels,
@@ -282,38 +294,35 @@ def get(num_classes, images_, keep_prob_, is_training_, train_phase=False):
         #output: 46x46x256, filters: (3x3x256)x256
         print(conv4)
 
-    num_kernels *= 2  #512
+    num_kernels *= 2  #256
     with tf.variable_scope(str(num_kernels)):
         with tf.variable_scope("conv5"):
             conv5 = eq_conv_layer(conv4, KERNEL_SIDE, num_kernels,
                                   (1, 1, 1, 1), is_training_)
-        print(conv5)
-        #output: 46x46x512, filters: (3x3x256)x512
+            print(conv5)
+            #output: 46x46x256, filters: (3x3x128)x256
+
+        with tf.variable_scope("conv5.1"):
+            conv5 = eq_conv_layer(conv5, KERNEL_SIDE, num_kernels,
+                                  (1, 1, 1, 1), is_training_)
+            print(conv5)
+            #output: 46x46x256, filters: (3x3x256)x256
 
         with tf.variable_scope("conv6"):
             conv6 = eq_conv_layer(conv5, KERNEL_SIDE, num_kernels,
                                   (1, 2, 2, 1), is_training_)
-        #output: 23x23x512, filters: (3x3x512)x512
-        print(conv6)
+            #output: 23x23x512, filters: (3x3x512)x512
+            print(conv6)
 
-        # equivalent side = 5 + (5-1)*(6-1) = 25
-        # = LAST_KERNEL_SIDE. But the paremeters are not 25x25, but only 5x5
         with tf.variable_scope("conv7"):
-            # if the dummy filter is 3, pad amount is 2P = 2 => P=1 per side
-            conv6_prepad = prepad(conv6, 3)
-
-            print(conv6_prepad)
-            # 25x25x512
-
-            conv7 = atrous_layer(conv6_prepad, (
+            conv7 = atrous_layer(conv6, (
                 REAL_LAST_KERNEL_SIDE, REAL_LAST_KERNEL_SIDE, num_kernels,
                 FC_NEURONS), LAST_CONV_INPUT_STRIDE, is_training_)
-        print(conv7)
-        # output: 1x1xFC_NEURONS, filters: (25x25x512)x512, but parameters: (5x5x512)x512
-        # combine 512 features (extracted from the 25x25x512 filters) into FC_NEURONS
+            print(conv7)
+            # output: 1x1xFC_NEURONS, filters: (LAST_KERNEL_SIDExLAST_KERNEL_SIDEx256)x256, but parameters: (3x3x256)x256
+            # combine 512 features (extracted from the LAST_KERNEL_SIDExLAST_KERNEL_SIDEx256 filters) into FC_NEURONS
 
         # 1x1xDepth convolutions, FC equivalent
-
     with tf.variable_scope("fc1"):
         fc1 = conv_layer(conv7, (1, 1, FC_NEURONS, FC_NEURONS), "VALID",
                          (1, 1, 1, 1))

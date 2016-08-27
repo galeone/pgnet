@@ -27,14 +27,14 @@ TRAINED_MODEL_FILENAME = "model.pb"
 CSV_PATH = "~/data/PASCAL_2012_cropped"
 
 # train & validation parameters
-DISPLAY_STEP = 10
-MEASUREMENT_STEP = 50
+DISPLAY_STEP = 5
+MEASUREMENT_STEP = 20
 STEP_FOR_EPOCH = math.ceil(pascal_input.NUM_EXAMPLES_PER_EPOCH_FOR_TRAIN /
                            pgnet.BATCH_SIZE)
 MAX_ITERATIONS = STEP_FOR_EPOCH * 500
 
 # stop when
-AVG_VALIDATION_ACCURACY_EPOCHS = 100
+AVG_VALIDATION_ACCURACY_EPOCHS = 50
 # list of average validation at the end of every epoch
 AVG_VALIDATION_ACCURACIES = [0.0
                              for _ in range(AVG_VALIDATION_ACCURACY_EPOCHS)]
