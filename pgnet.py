@@ -35,11 +35,11 @@ LAST_CONV_INPUT_STRIDE = 11  # atrous conv rate
 REAL_LAST_KERNEL_SIDE = 3
 
 DOWNSAMPLING_FACTOR = math.ceil(INPUT_SIDE / LAST_KERNEL_SIDE)
-FC_NEURONS = 1024
+FC_NEURONS = 2048
 
 # train constants
-BATCH_SIZE = 128
-LEARNING_RATE = 1e-3
+BATCH_SIZE = 64
+LEARNING_RATE = 1e-5
 
 # output tensor name
 OUTPUT_TENSOR_NAME = "softmax_linear/out"
@@ -192,7 +192,7 @@ def atrous_conv2d(value, filters, rate, name):
     return value
 
 
-def atrous_layer(input_x, atrous_kernel_shape, rate, is_training_):
+def last_layer(input_x, atrous_kernel_shape, rate):
     """
     Returns the result of:
     ReLU(atrous_conv2d(x, kernels, rate, padding=VALID) + bias).
@@ -212,7 +212,6 @@ def atrous_layer(input_x, atrous_kernel_shape, rate, is_training_):
         x: 4-D input tensor. shape = (batch, height, width, depth)
         atrous_kernel_shape: the shape of W (kernel_height, kernel_width, kernel_depth, num_kernels)
         rate: the atrous_conv2d rate parameter
-        is_training_: placeholder or boolean variable to set to True when training
     """
 
     with tf.variable_scope("atrous_conv_layer"):
@@ -221,12 +220,10 @@ def atrous_layer(input_x, atrous_kernel_shape, rate, is_training_):
         kernels = utils.kernels(atrous_kernel_shape, "kernels")
         bias = utils.bias([num_kernels], "bias")
 
-        return batch_norm(
-            tf.nn.relu(
-                tf.add(atrous_conv2d(
-                    input_x, kernels, rate=rate, name="atrous_conv"),
-                       bias)),
-            is_training_)
+        return tf.nn.relu(
+            tf.add(atrous_conv2d(
+                input_x, kernels, rate=rate, name="atrous_conv"),
+                   bias))
 
 
 def get(num_classes, images_, keep_prob_, is_training_, train_phase=False):
@@ -260,12 +257,12 @@ def get(num_classes, images_, keep_prob_, is_training_, train_phase=False):
             conv1 = eq_conv_layer(images_, KERNEL_SIDE, num_kernels,
                                   (1, 1, 1, 1), is_training_)
             print(conv1)
-            #output: 184x184x128, filters: (3x3x3)x64
+            #output: 184x184x64, filters: (3x3x3)x64
 
         with tf.variable_scope("conv1.1"):
             conv1 = eq_conv_layer(conv1, KERNEL_SIDE, num_kernels,
                                   (1, 1, 1, 1), is_training_)
-            #output: 184x184x128, filters: (3x3x64)x64
+            #output: 184x184x64, filters: (3x3x64)x64
             print(conv1)
 
         with tf.variable_scope("conv2"):
@@ -274,19 +271,25 @@ def get(num_classes, images_, keep_prob_, is_training_, train_phase=False):
             #output: 92x92x64, filters: (3x3x64)x64
             print(conv2)
 
-    num_kernels *= 2  #128
+        with tf.variable_scope("conv2.1"):
+            conv2 = eq_conv_layer(conv2, KERNEL_SIDE, num_kernels,
+                                  (1, 1, 1, 1), is_training_)
+            #output: 92x92x64, filters: (3x3x64)x64
+            print(conv2)
+
+    num_kernels *= 4  # 256
     with tf.variable_scope(str(num_kernels)):
         with tf.variable_scope("conv3"):
             conv3 = eq_conv_layer(conv2, KERNEL_SIDE, num_kernels,
                                   (1, 1, 1, 1), is_training_)
             print(conv3)
-            #output: 92x92x64, filters: (3x3x64)x128
+            #output: 92x92x256, filters: (3x3x64)x256
 
         with tf.variable_scope("conv3.1"):
             conv3 = eq_conv_layer(conv3, KERNEL_SIDE, num_kernels,
                                   (1, 1, 1, 1), is_training_)
             print(conv3)
-            #output: 92x92x64, filters: (3x3x128)x128
+            #output: 92x92x256, filters: (3x3x256)x256
 
         with tf.variable_scope("conv4"):
             conv4 = eq_conv_layer(conv3, KERNEL_SIDE, num_kernels,
@@ -294,19 +297,25 @@ def get(num_classes, images_, keep_prob_, is_training_, train_phase=False):
         #output: 46x46x256, filters: (3x3x256)x256
         print(conv4)
 
-    num_kernels *= 2  #256
+        with tf.variable_scope("conv4.1"):
+            conv4 = eq_conv_layer(conv4, KERNEL_SIDE, num_kernels,
+                                  (1, 1, 1, 1), is_training_)
+        #output: 46x46x256, filters: (3x3x256)x256
+        print(conv4)
+
+    num_kernels *= 2  #512
     with tf.variable_scope(str(num_kernels)):
         with tf.variable_scope("conv5"):
             conv5 = eq_conv_layer(conv4, KERNEL_SIDE, num_kernels,
                                   (1, 1, 1, 1), is_training_)
             print(conv5)
-            #output: 46x46x256, filters: (3x3x128)x256
+            #output: 46x46x512, filters: (3x3x256)x512
 
         with tf.variable_scope("conv5.1"):
             conv5 = eq_conv_layer(conv5, KERNEL_SIDE, num_kernels,
                                   (1, 1, 1, 1), is_training_)
             print(conv5)
-            #output: 46x46x256, filters: (3x3x256)x256
+            #output: 46x46x512, filters: (3x3x512)x512
 
         with tf.variable_scope("conv6"):
             conv6 = eq_conv_layer(conv5, KERNEL_SIDE, num_kernels,
@@ -314,13 +323,20 @@ def get(num_classes, images_, keep_prob_, is_training_, train_phase=False):
             #output: 23x23x512, filters: (3x3x512)x512
             print(conv6)
 
+        with tf.variable_scope("conv6.1"):
+            conv6 = eq_conv_layer(conv6, KERNEL_SIDE, num_kernels,
+                                  (1, 1, 1, 1), is_training_)
+            #output: 23x23x512, filters: (3x3x512)x512
+
         with tf.variable_scope("conv7"):
-            conv7 = atrous_layer(conv6, (
-                REAL_LAST_KERNEL_SIDE, REAL_LAST_KERNEL_SIDE, num_kernels,
-                FC_NEURONS), LAST_CONV_INPUT_STRIDE, is_training_)
+            conv7 = last_layer(conv6, (REAL_LAST_KERNEL_SIDE,
+                                       REAL_LAST_KERNEL_SIDE, num_kernels,
+                                       FC_NEURONS), LAST_CONV_INPUT_STRIDE)
             print(conv7)
-            # output: 1x1xFC_NEURONS, filters: (LAST_KERNEL_SIDExLAST_KERNEL_SIDEx256)x256, but parameters: (3x3x256)x256
-            # combine 512 features (extracted from the LAST_KERNEL_SIDExLAST_KERNEL_SIDEx256 filters) into FC_NEURONS
+            # output: 1x1xFC_NEURONS, filters: (LAST_KERNEL_SIDExLAST_KERNEL_SIDEx512)x512
+            # but parameters: (3x3x512)x512
+            # combine 512 features (extracted from the LAST_KERNEL_SIDExLAST_KERNEL_SIDEx512
+            # filters) into FC_NEURONS
 
         # 1x1xDepth convolutions, FC equivalent
     with tf.variable_scope("fc1"):
