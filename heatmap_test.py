@@ -32,12 +32,8 @@ PASCAL_LABELS = ["aeroplane", "bicycle", "bird", "boat", "bottle", "bus",
 INPUT_SIDE = pgnet.INPUT_SIDE + pgnet.DOWNSAMPLING_FACTOR * 20
 OUTPUT_SIDE = INPUT_SIDE / pgnet.DOWNSAMPLING_FACTOR - pgnet.LAST_KERNEL_SIDE + 1
 LOOKED_POS = OUTPUT_SIDE**2
-MIN_GLOBAL_PROB = 0.9
-MIN_GLOCAL_PROB = 0.6
-
-# challenge constants
-EPS = 0.01
-RECT_SIMILARITY = 0.90
+MIN_PROB = 0.6
+RECT_SIMILARITY = 0.9
 
 # trained pgnet constants
 BACKGROUND_CLASS = 20
@@ -260,7 +256,7 @@ def main(args):
 
                         if top_indices[probability_coords][
                                 0] != BACKGROUND_CLASS and top_values[
-                                    probability_coords][0] >= MIN_GLOBAL_PROB:
+                                    probability_coords][0] > MIN_PROB:
 
                             # create coordinates of rect in the downsampled image
                             # convert to numpy array in order to use broadcast ops
@@ -288,7 +284,7 @@ def main(args):
                 print('Found {} classes: {}'.format(len(classes), classes))
 
                 min_freq = LOOKED_POS
-                min_prob = 1
+                min_prob = 1.0
                 for label in group:
                     group[label]["prob"] /= group[label]["count"]
                     prob = group[label]["prob"]
@@ -299,11 +295,11 @@ def main(args):
                     if prob < min_prob:
                         min_prob = prob
 
-                # pruning with EPS tollerance
+                # pruning
                 group = {
                     label: value
                     for label, value in group.items()
-                    if value["prob"] > min_prob + EPS and value["count"] >
+                    if value["prob"] > min_prob and value["count"] - 0.05 >
                     min_freq
                 }
 
@@ -340,22 +336,17 @@ def main(args):
                     # if the classification gives the same global label as top-1(2,3?) draw it
                     # else skip it.
 
-                    # Prune ROIs collections, using a threshold on the condidence.
-                    # Avoid to collect useless rois and thus to analize them
-                    if relative_freq > EPS:
-                        for rect_prob in global_rect_prob[label]:
-                            rect = rect_prob[0]
-                            y2 = rect[3]
-                            y1 = rect[1]
-                            x2 = rect[2]
-                            x1 = rect[0]
-                            roi = image[y1:y2, x1:x2]
+                    for rect_prob in global_rect_prob[label]:
+                        rect = rect_prob[0]
+                        y2 = rect[3]
+                        y1 = rect[1]
+                        x2 = rect[2]
+                        x1 = rect[0]
+                        roi = image[y1:y2, x1:x2]
 
-                            rois.append(
-                                sess.run(roi_preproc, feed_dict={roi_: roi}))
-                            rois_count += 1
-                    else:
-                        break
+                        rois.append(
+                            sess.run(roi_preproc, feed_dict={roi_: roi}))
+                        rois_count += 1
 
                 # evaluate top values for every image in the batch of rois
                 rois_top_values, rois_top_indices = sess.run(
@@ -389,14 +380,9 @@ def main(args):
 
                         roi_label = PASCAL_LABELS[roi_top_indices[0]]
                         if label == roi_label:
-                            avg_prob = (rect_prob[1] + roi_top_probs[0]) / 2
-
-                            print(label, rect_prob[1], relative_freq,
-                                  roi_top_probs[0], avg_prob)
-
-                            draw = avg_prob >= MIN_GLOCAL_PROB
-                            if draw:
-                                print('draw')
+                            print(label, roi_top_probs[0], rect_prob[1])
+                            if (roi_top_probs[0] + rect_prob[1]
+                                ) / 2 > MIN_PROB:
                                 localize[label].append(
                                     [rect_prob[0], roi_top_probs[0]])
 
