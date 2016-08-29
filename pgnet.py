@@ -28,11 +28,12 @@ INPUT_DEPTH = 3
 KERNEL_SIDE = 3
 
 # Last convolution is an atrous convolution
-# 3 + (3-1)*(r-1) = 23 -> 3 + 2r -2 = 23 -> 2r = 23 -1 -> r = 11
-LAST_KERNEL_SIDE = 23
+# 5 + (5-1)*(r-1) = 23 -> 5 + 4r - 4 = 23 -> 4r = 23 - 1 -> r = 22/4 = 5.5
+# prepad input 23 -> 25: rate = 6
+LAST_KERNEL_SIDE = 25
 LAST_CONV_OUTPUT_STRIDE = 1
-LAST_CONV_INPUT_STRIDE = 11  # atrous conv rate
-REAL_LAST_KERNEL_SIDE = 3
+LAST_CONV_INPUT_STRIDE = 6  # atrous conv rate
+REAL_LAST_KERNEL_SIDE = 5
 
 DOWNSAMPLING_FACTOR = math.ceil(INPUT_SIDE / LAST_KERNEL_SIDE)
 FC_NEURONS = 2048
@@ -326,9 +327,13 @@ def get(num_classes, images_, keep_prob_, is_training_, train_phase=False):
         with tf.variable_scope("conv6.1"):
             conv6 = eq_conv_layer(conv6, KERNEL_SIDE, num_kernels,
                                   (1, 1, 1, 1), is_training_)
+            print(conv6)
             #output: 23x23x512, filters: (3x3x512)x512
 
         with tf.variable_scope("conv7"):
+            # dummy kernel side to prepad of P=1 per side
+            conv6 = prepad(conv6, 3)
+            #output: 25x25x512
             conv7 = last_layer(conv6, (REAL_LAST_KERNEL_SIDE,
                                        REAL_LAST_KERNEL_SIDE, num_kernels,
                                        FC_NEURONS), LAST_CONV_INPUT_STRIDE)
