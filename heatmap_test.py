@@ -32,10 +32,12 @@ PASCAL_LABELS = ["aeroplane", "bicycle", "bird", "boat", "bottle", "bus",
 INPUT_SIDE = pgnet.INPUT_SIDE + pgnet.DOWNSAMPLING_FACTOR * 20
 OUTPUT_SIDE = INPUT_SIDE / pgnet.DOWNSAMPLING_FACTOR - pgnet.LAST_KERNEL_SIDE + 1
 LOOKED_POS = OUTPUT_SIDE**2
-MIN_PROB = 0.6
+MIN_GLOBAL_PROB = 0.9
+MIN_GLOCAL_PROB = 0.6
 
 # challenge constants
-EPS = 0.03
+EPS = 0.01
+RECT_SIMILARITY = 0.90
 
 # trained pgnet constants
 BACKGROUND_CLASS = 20
@@ -145,7 +147,8 @@ def group_overlapping_with_same_class(map_of_regions, keep_singles=False):
         # group them
         factor = 2 if keep_singles else 1
         rect_list, _ = cv2.groupRectangles(
-            rects_only.tolist() * factor, 1, eps=0.5)
+            rects_only.tolist() * factor, 1, eps=RECT_SIMILARITY)
+
         # calculate probability of the grouped rectangles as the mean prob
         merged_rect_prob_list = []
         for merged_rect in rect_list:
@@ -257,7 +260,7 @@ def main(args):
 
                         if top_indices[probability_coords][
                                 0] != BACKGROUND_CLASS and top_values[
-                                    probability_coords][0] >= MIN_PROB:
+                                    probability_coords][0] >= MIN_GLOBAL_PROB:
 
                             # create coordinates of rect in the downsampled image
                             # convert to numpy array in order to use broadcast ops
@@ -391,7 +394,7 @@ def main(args):
                             print(label, rect_prob[1], relative_freq,
                                   roi_top_probs[0], avg_prob)
 
-                            draw = avg_prob > MIN_PROB + EPS
+                            draw = avg_prob >= MIN_GLOCAL_PROB
                             if draw:
                                 print('draw')
                                 localize[label].append(
