@@ -89,9 +89,8 @@ def split_dataset(base_path):
 
     train_file.close()
     validation_file.close()
-    print(
-        "Number of validation examples: {}\nNumber of training examples: {}".format(
-            tot_validation, tot_line - tot_validation))
+    print("Number of validation examples: {}\nNumber of training examples: {}".
+          format(tot_validation, tot_line - tot_validation))
     return 0
 
 

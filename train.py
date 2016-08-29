@@ -212,9 +212,9 @@ def train(args):
                         examples_per_sec = pgnet.BATCH_SIZE / duration
                         sec_per_batch = float(duration)
                         print(
-                            "{} step: {} loss: {} ({} examples/sec; {} batch/sec)".format(
-                                datetime.now(), gs_value, loss_val,
-                                examples_per_sec, sec_per_batch))
+                            "{} step: {} loss: {} ({} examples/sec; {} batch/sec)".
+                            format(datetime.now(), gs_value, loss_val,
+                                   examples_per_sec, sec_per_batch))
 
                     stop_training = False
                     if step % MEASUREMENT_STEP == 0 and step > 0:
@@ -238,9 +238,9 @@ def train(args):
                             summary_line, global_step=gs_value)
 
                         print(
-                            "{} step: {} validation accuracy: {} training accuracy: {}".format(
-                                datetime.now(), gs_value, validation_accuracy,
-                                test_accuracy))
+                            "{} step: {} validation accuracy: {} training accuracy: {}".
+                            format(datetime.now(), gs_value,
+                                   validation_accuracy, test_accuracy))
 
                         sum_validation_accuracy += validation_accuracy
 
@@ -248,8 +248,8 @@ def train(args):
                         # current validation accuracy
                         current_validation_accuracy = sum_validation_accuracy * MEASUREMENT_STEP / STEP_FOR_EPOCH
                         print(
-                            "Epoch {} finised. Average validation accuracy/epoch: {}".format(
-                                current_epoch, current_validation_accuracy))
+                            "Epoch {} finised. Average validation accuracy/epoch: {}".
+                            format(current_epoch, current_validation_accuracy))
 
                         # sum previous avg accuracy
                         history_avg_accuracy = sum(
@@ -259,8 +259,8 @@ def train(args):
                         # AVG_VALIDATION_ACCURACY_NOT_INCREASED_AFTER_EPOCH, exit
                         if current_validation_accuracy <= history_avg_accuracy:
                             print(
-                                "Average validation accuracy not increased after {} epochs. Exit".format(
-                                    AVG_VALIDATION_ACCURACY_EPOCHS))
+                                "Average validation accuracy not increased after {} epochs. Exit".
+                                format(AVG_VALIDATION_ACCURACY_EPOCHS))
                             # exit using stop_training flag, in order to save current status
                             stop_training = True
 
