@@ -29,7 +29,7 @@ CSV_PATH = "~/data/PASCAL_2012_cropped"
 # train & validation parameters
 STEP_FOR_EPOCH = math.ceil(pascal_input.NUM_EXAMPLES_PER_EPOCH_FOR_TRAIN /
                            pgnet.BATCH_SIZE)
-DISPLAY_STEP = math.ceil(STEP_FOR_EPOCH / 100)
+DISPLAY_STEP = math.ceil(STEP_FOR_EPOCH / 50)
 MEASUREMENT_STEP = DISPLAY_STEP
 MAX_ITERATIONS = STEP_FOR_EPOCH * 500
 
@@ -184,7 +184,7 @@ def train(args):
                     _, loss_val, summary_line, gs_value = sess.run(
                         [train_op, loss_op, summary_op, global_step],
                         feed_dict={
-                            keep_prob_: 0.1,
+                            keep_prob_: 0.75,
                             is_training_: True,
                             images_: train_images,
                             labels_: train_labels,

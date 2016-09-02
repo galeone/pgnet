@@ -40,7 +40,7 @@ DOWNSAMPLING_FACTOR = math.ceil(INPUT_SIDE / LAST_KERNEL_SIDE)
 FC_NEURONS = 2048
 
 # train constants
-BATCH_SIZE = 32
+BATCH_SIZE = 100
 LEARNING_RATE = 1e-3
 
 # output tensor name
@@ -253,7 +253,7 @@ def get(num_classes, images_, keep_prob_, is_training_, train_phase=False):
     # 200x200x3
     print(images_)
 
-    num_kernels = 2**6  #64
+    num_kernels = 2**5  #32
     with tf.variable_scope(str(num_kernels)):
         with tf.variable_scope("conv1"):
             conv1 = eq_conv_layer(images_, KERNEL_SIDE, num_kernels,
@@ -261,128 +261,102 @@ def get(num_classes, images_, keep_prob_, is_training_, train_phase=False):
             if train_phase is True:
                 conv1 = tf.nn.dropout(conv1, keep_prob_, name="dropout")
             print(conv1)
-            #output: 200x200x64, filters: (3x3x3)x64
+            #output: 200x200x32, filters: (3x3x3)x32
 
         with tf.variable_scope("conv1.1"):
             conv1 = eq_conv_layer(conv1, KERNEL_SIDE, num_kernels,
                                   (1, 1, 1, 1), is_training_)
-            if train_phase is True:
-                conv1 = tf.nn.dropout(conv1, keep_prob_, name="dropout")
-            #output: 200x200x64, filters: (3x3x64)x64
+            #output: 200x200x32, filters: (3x3x32)x32
             print(conv1)
 
         with tf.variable_scope("conv2"):
             conv2 = eq_conv_layer(conv1, KERNEL_SIDE, num_kernels,
                                   (1, 2, 2, 1), is_training_)
-            if train_phase is True:
-                conv2 = tf.nn.dropout(conv2, keep_prob_, name="dropout")
-            #output: 100x100x64, filters: (3x3x64)x64
+            #output: 100x100x32, filters: (3x3x32)x32
             print(conv2)
 
         with tf.variable_scope("conv2.1"):
             conv2 = eq_conv_layer(conv2, KERNEL_SIDE, num_kernels,
                                   (1, 1, 1, 1), is_training_)
-            if train_phase is True:
-                conv2 = tf.nn.dropout(conv2, keep_prob_, name="dropout")
-            #output: 100x100x64, filters: (3x3x64)x64
+            #output: 100x100x32, filters: (3x3x32)x32
             print(conv2)
 
-    num_kernels *= 4  # 256
+    num_kernels *= 4  # 128
     with tf.variable_scope(str(num_kernels)):
         with tf.variable_scope("conv3"):
             conv3 = eq_conv_layer(conv2, KERNEL_SIDE, num_kernels,
                                   (1, 1, 1, 1), is_training_)
-            if train_phase is True:
-                conv3 = tf.nn.dropout(conv3, keep_prob_, name="dropout")
+            #if train_phase is True:
+            #    conv3 = tf.nn.dropout(conv3, keep_prob_, name="dropout")
             print(conv3)
-            #output: 100x100x256, filters: (3x3x64)x256
+            #output: 100x100x128, filters: (3x3x32)x128
 
         with tf.variable_scope("conv3.1"):
             conv3 = eq_conv_layer(conv3, KERNEL_SIDE, num_kernels,
                                   (1, 1, 1, 1), is_training_)
-            if train_phase is True:
-                conv3 = tf.nn.dropout(conv3, keep_prob_, name="dropout")
             print(conv3)
-            #output: 100x100x256, filters: (3x3x256)x256
+            #output: 100x100x128, filters: (3x3x128)x128
 
         with tf.variable_scope("conv4"):
             conv4 = eq_conv_layer(conv3, KERNEL_SIDE, num_kernels,
                                   (1, 2, 2, 1), is_training_)
-            if train_phase is True:
-                conv4 = tf.nn.dropout(conv4, keep_prob_, name="dropout")
-        #output: 50x50x256, filters: (3x3x256)x256
+        #output: 50x50x128, filters: (3x3x128)x128
         print(conv4)
 
         with tf.variable_scope("conv4.1"):
             conv4 = eq_conv_layer(conv4, KERNEL_SIDE, num_kernels,
                                   (1, 1, 1, 1), is_training_)
-            if train_phase is True:
-                conv4 = tf.nn.dropout(conv4, keep_prob_, name="dropout")
-        #output: 50x50x256, filters: (3x3x256)x256
+        #output: 50x50x128, filters: (3x3x128)x128
         print(conv4)
 
-    num_kernels *= 2  #512
+    num_kernels *= 2  #256
     with tf.variable_scope(str(num_kernels)):
         with tf.variable_scope("conv5"):
             conv5 = eq_conv_layer(conv4, KERNEL_SIDE, num_kernels,
                                   (1, 1, 1, 1), is_training_)
-            if train_phase is True:
-                conv5 = tf.nn.dropout(conv5, keep_prob_, name="dropout")
+            #if train_phase is True:
+            #    conv5 = tf.nn.dropout(conv5, keep_prob_, name="dropout")
             print(conv5)
-            #output: 50x50x512, filters: (3x3x256)x512
+            #output: 50x50x256, filters: (3x3x128)x256
 
         with tf.variable_scope("conv5.1"):
             conv5 = eq_conv_layer(conv5, KERNEL_SIDE, num_kernels,
                                   (1, 1, 1, 1), is_training_)
-            if train_phase is True:
-                conv5 = tf.nn.dropout(conv5, keep_prob_, name="dropout")
             print(conv5)
-            #output: 50x50x512, filters: (3x3x512)x512
+            #output: 50x50x256, filters: (3x3x256)x256
 
         with tf.variable_scope("conv6"):
             conv6 = eq_conv_layer(conv5, KERNEL_SIDE, num_kernels,
                                   (1, 2, 2, 1), is_training_)
-            if train_phase is True:
-                conv6 = tf.nn.dropout(conv6, keep_prob_, name="dropout")
-            #output: 25x25x512, filters: (3x3x512)x512
+            #output: 25x25x256, filters: (3x3x256)x256
             print(conv6)
 
         with tf.variable_scope("conv6.1"):
             conv6 = eq_conv_layer(conv6, KERNEL_SIDE, num_kernels,
                                   (1, 1, 1, 1), is_training_)
-            if train_phase is True:
-                conv6 = tf.nn.dropout(conv6, keep_prob_, name="dropout")
             print(conv6)
-            #output: 25x25x512, filters: (3x3x512)x512
+            #output: 25x25x256, filters: (3x3x256)x256
 
         with tf.variable_scope("conv7"):
             conv7 = last_layer(conv6, (REAL_LAST_KERNEL_SIDE,
                                        REAL_LAST_KERNEL_SIDE, num_kernels,
                                        FC_NEURONS), LAST_CONV_INPUT_STRIDE)
-            if train_phase is True:
-                conv7 = tf.nn.dropout(conv7, keep_prob_, name="dropout")
             print(conv7)
-            # output: 1x1xFC_NEURONS, filters: (LAST_KERNEL_SIDExLAST_KERNEL_SIDEx512)x512
-            # but parameters: (3x3x512)x512
-            # combine 512 features (extracted from the LAST_KERNEL_SIDExLAST_KERNEL_SIDEx512
+            # output: 1x1xFC_NEURONS, filters: (LAST_KERNEL_SIDExLAST_KERNEL_SIDEx256)x256
+            # but parameters: (3x3x256)x256
+            # combine 256 features (extracted from the LAST_KERNEL_SIDExLAST_KERNEL_SIDEx256
             # filters) into FC_NEURONS
 
         # 1x1xDepth convolutions, FC equivalent
     with tf.variable_scope("fc1"):
         fc1 = conv_layer(conv7, (1, 1, FC_NEURONS, FC_NEURONS), "VALID",
                          (1, 1, 1, 1))
-        if train_phase is True:
-            fc1 = tf.nn.dropout(fc1, keep_prob_, name="dropout")
-
     print(fc1)
     # output: 1x1xNUM_NEURONS
 
     with tf.variable_scope("fc2"):
         fc2 = conv_layer(fc1, (1, 1, FC_NEURONS, FC_NEURONS), "VALID",
                          (1, 1, 1, 1))
-        if train_phase is True:
-            fc2 = tf.nn.dropout(fc2, keep_prob_, name="dropout")
-
     print(fc2)
     # output: 1x1xNUM_NEURONS
 
