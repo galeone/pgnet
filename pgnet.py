@@ -266,6 +266,100 @@ def loss(logits, labels):
     return mean_cross_entropy
 
 
+def detect(logits, min_prob):
+    # logits is a spatial map whose coordinates are the result of
+    # softmax linear.
+    # logits is a tensor with shape [batch_size, n, n, num_classes]a
+    print(logits)
+
+    # unroll logits over the first dimension, so let's treat each image 
+    # in the batch separately
+
+    num_classes = logits.get_shape()[3].value
+
+    # for every image in the batch
+    def get_rect_prob(logit):
+
+        # unroll nxnxnum_class map in [n*n, num_class] tensor
+        reshaped_logit = tf.reshape(logit, [-1, num_classes])
+        # extract softmax for every location
+        per_region_probabilities = tf.nn.softmax(reshaped_logit)
+        # extract top values/indices for every location
+        per_region_top_values, per_region_top_indices = tf.nn.top_k(
+            per_region_probabilities, k=num_classes)
+
+        # for every region associated with the current image
+        # extract coordinates of the rect in the downsampled image
+        # return a tensor like: [ [y1,x1,y2,x2], [num_class prob], [num_class idx] ]
+
+        # unroll logit over the first dimension and loop
+        # than unroll unrolled logit over the first dimension and loop
+        # keep track of loop indices and extract coords
+
+        # accumulator y format:
+        #[p_coord, [y1,x1, y2, x2], prob, idx]
+        # content format:
+        #(logit, per_region_top_values, per_region_top_indices)
+        # accumulator probability coord over the two nested loops
+
+        rects = []
+
+        def loop_y(accumulator, logit_y):
+
+            print('loop Y', accumulator, logit_y)
+            def loop_x(accumulator, logit_x):
+                print('loop X', accumulator, logit_x)
+                p_coord = tf.cast(accumulator[0], tf.int32)
+                y_coord = accumulator[1]
+                x_coord = accumulator[2]
+
+                rects.append([
+                    [y_coord, x_coord, tf.add(y_coord, LAST_KERNEL_SIDE),
+                     tf.add(x_coord, LAST_KERNEL_SIDE)],
+                    tf.cast(tf.gather(per_region_top_values, p_coord), tf.float32),
+                    tf.cast(tf.gather(per_region_top_indices, p_coord), tf.float32)
+                ])
+
+                p_coord = tf.cast(tf.add(p_coord, 1), tf.float32)
+                x_coord = tf.add(x_coord, 1)
+                # loop_x do not change y_coord
+
+                accumulator = [p_coord, y_coord, x_coord]
+                return accumulator
+
+            p_coord = accumulator[0]
+            y_coord = accumulator[1]
+            x_coord = accumulator[2]
+            initializer = [p_coord, y_coord, x_coord]
+
+            # unroll unrolled logit over the x dimension
+            p_coord, y_coord, x_coord = tf.scan(
+                loop_x, logit_y, initializer=initializer)
+
+            # step over y
+            p_coord = tf.add(p_coord, 1)
+            y_coord = tf.add(y_coord, 1)
+            # loop_y do not change x_coord
+            accumulator = [p_coord, y_coord, x_coord]
+            return accumulator
+
+        # unroll logits over the first dimension (y)
+        p_coord = tf.constant(0, dtype=tf.float32)
+        y_coord = tf.constant(0, dtype=tf.float32)
+        x_coord = tf.constant(0, dtype=tf.float32)
+        initializer = [p_coord, y_coord, x_coord]
+
+        p_coord, y_coord, x_coord = tf.scan(
+            loop_y, tf.expand_dims(logit, 0), initializer=initializer)
+        # now rects should have been filled
+        return rects
+
+    # here's the unroll over the batch_size dim
+    # expect a tensor with shape: [batch_size, [4], [num_class prob], [num_class idx]]
+    coord_type = [tf.float32]*4
+    return tf.map_fn(get_rect_prob, logits, dtype=[[coord_type, tf.float32, tf.float32]], back_prop=False)
+
+
 def train(loss_op, global_step):
     """
     Creates an Optimizer.
