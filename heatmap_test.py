@@ -29,11 +29,9 @@ PASCAL_LABELS = ["aeroplane", "bicycle", "bird", "boat", "bottle", "bus",
                  "train", "tvmonitor"]
 
 # detection constants
-INPUT_SIDE = pgnet.INPUT_SIDE + pgnet.DOWNSAMPLING_FACTOR * 20
-OUTPUT_SIDE = INPUT_SIDE / pgnet.DOWNSAMPLING_FACTOR - pgnet.LAST_KERNEL_SIDE + 1
-LOOKED_POS = OUTPUT_SIDE**2
-MIN_PROB = 0.6
-RECT_SIMILARITY = 0.9
+BETA = 10
+MIN_PROB = 0.8
+RECT_SIMILARITY = 0.99
 
 # trained pgnet constants
 BACKGROUND_CLASS = 20
@@ -205,10 +203,26 @@ def main(args):
         # get every probabiliy, because we can use localization to do classification
         top_k = tf.nn.top_k(per_roi_probabilities, k=num_classes)
         # each with shape [tested_positions, k]
-        original_image, eval_image = image_processing.get_original_and_processed_image(
-            tf.constant(args.image_path),
-            INPUT_SIDE,
-            image_type=args.image_path.split('.')[-1])
+
+        original_image = tf.image.convert_image_dtype(
+            image_processing.read_image(
+                tf.constant(args.image_path), 3,
+                args.image_path.split('.')[-1]),
+            dtype=tf.uint8)
+        original_image_dim = tf.shape(original_image)
+        original_image_min_dim = tf.minimum(original_image_dim[0],
+                                            original_image_dim[1])
+        eval_image_side = tf.cond(
+                tf.less_equal(original_image_min_dim,
+                              tf.constant(pgnet.INPUT_SIDE)),
+                lambda: tf.constant(pgnet.INPUT_SIDE),
+                lambda: tf.constant(pgnet.INPUT_SIDE) + tf.constant(pgnet.DOWNSAMPLING_FACTOR) * BETA * tf.cast(tf.floor(tf.maximum(original_image_dim[0],original_image_dim[1]) / tf.constant(pgnet.INPUT_SIDE)), dtype=tf.int32)
+                )
+
+        eval_image = tf.expand_dims(
+            image_processing.zm_mp(
+                image_processing.resize_bl(original_image, eval_image_side)),
+            0)
 
         # roi placehoder
         roi_ = tf.placeholder(tf.uint8)
@@ -221,12 +235,13 @@ def main(args):
         with tf.Session(config=tf.ConfigProto(
                 allow_soft_placement=True)) as sess:
 
-            input_images, image = sess.run([eval_image, original_image])
+            input_image, input_image_side, image = sess.run(
+                [eval_image, eval_image_side, original_image])
             start = time.time()
             probability_map, top_values, top_indices = sess.run(
                 [logits, top_k[0], top_k[1]],
                 feed_dict={
-                    "images_:0": input_images
+                    "images_:0": input_image
                 })
 
             # let's think to the net as a big net, with the last layer (before the FC
@@ -239,10 +254,11 @@ def main(args):
             # of points. Every point has a depth of num classes.
 
             # for every image in the input batch
-            for _ in range(len(input_images)):
+            for _ in range(len(input_image)):
                 # scaling factor between original image and resized image
                 full_image_scaling_factors = np.array(
-                    [image.shape[1] / INPUT_SIDE, image.shape[0] / INPUT_SIDE])
+                    [image.shape[1] / input_image_side,
+                     image.shape[0] / input_image_side])
 
                 probability_coords = 0
                 glance = defaultdict(list)
@@ -283,48 +299,34 @@ def main(args):
                 classes = group.keys()
                 print('Found {} classes: {}'.format(len(classes), classes))
 
-                min_freq = LOOKED_POS
-                min_prob = 1.0
-                for label in group:
-                    group[label]["prob"] /= group[label]["count"]
-                    prob = group[label]["prob"]
-                    freq = group[label]["count"]
-
-                    if freq < min_freq:
-                        min_freq = freq
-                    if prob < min_prob:
-                        min_prob = prob
-
-                # pruning
-                group = {
-                    label: value
-                    for label, value in group.items()
-                    if value["prob"] > min_prob and value["count"] - 0.05 >
-                    min_freq
-                }
-
-                # remaining classes
-                classes = group.keys()
-
                 # consider the positions of the remaining classes
                 looked_pos = sum(value['count'] for value in group.values())
 
                 # Save the relative frequency for every class
                 rankmap = defaultdict(float)
+                freq_sum = 0.0
+                freq_count = 0
                 for label in group:
                     relative_freq = group[label]["count"] / looked_pos
                     rankmap[label] = relative_freq
                     print('{}, {}, {} => RF {}'.format(label, group[label][
                         "prob"], group[label]["count"], relative_freq))
+                    freq_sum += relative_freq
+                    freq_count += 1
+
+                avg_freq = freq_sum / freq_count
 
                 # keep rectangles from local glance, only of the remaining labels
                 glance = {label: value
                           for label, value in glance.items()
-                          if label in classes}
+                          if label in classes and rankmap[label] >= 0.03}
+
+                # remaining classes
+                print(glance.keys())
 
                 # merge overlapping rectangles for each class
                 global_rect_prob = group_overlapping_with_same_class(
-                    glance, keep_singles=False)
+                    glance, keep_singles=True)
 
                 # loop preserving order, because rois are evaluated in order
                 rois = []
@@ -380,9 +382,11 @@ def main(args):
 
                         roi_label = PASCAL_LABELS[roi_top_indices[0]]
                         if label == roi_label:
-                            print(label, roi_top_probs[0], rect_prob[1])
-                            if (roi_top_probs[0] + rect_prob[1]
-                                ) / 2 > MIN_PROB:
+                            avg_prob = (roi_top_probs[0] + rect_prob[1]) / 2
+                            print(label, roi_top_probs[0], rect_prob[1],
+                                  relative_freq)
+                            if (avg_prob > MIN_PROB and roi_top_probs[0] >
+                                    MIN_PROB / 2) or relative_freq > avg_freq:
                                 localize[label].append(
                                     [rect_prob[0], roi_top_probs[0]])
 
