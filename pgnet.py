@@ -41,7 +41,7 @@ FC_NEURONS = 2048
 
 # train constants
 BATCH_SIZE = 64
-LEARNING_RATE = 1e-3
+LEARNING_RATE = 1e-5
 
 # output tensor name
 OUTPUT_TENSOR_NAME = "softmax_linear/out"
@@ -194,7 +194,7 @@ def atrous_conv2d(value, filters, rate, name):
     return value
 
 
-def last_layer(input_x, atrous_kernel_shape, rate):
+def last_layer(input_x, kernel_side, num_kernels, rate):
     """
     Returns the result of:
     ReLU(atrous_conv2d(x, kernels, rate, padding=VALID) + bias).
@@ -211,13 +211,15 @@ def last_layer(input_x, atrous_kernel_shape, rate):
     eg: 5 = (filter_h) + (filter_h -1)*(rate -1)
 
     Args:
-        x: 4-D input tensor. shape = (batch, height, width, depth)
-        atrous_kernel_shape: the shape of W (kernel_height, kernel_width, kernel_depth, num_kernels)
+        input_x: 4-D input tensor. shape = (batch, height, width, depth)
+        kernel_side: kernel side
+        num_kernels: the number of the kernels to learn
         rate: the atrous_conv2d rate parameter
     """
 
     with tf.variable_scope("atrous_conv_layer"):
-        num_kernels = atrous_kernel_shape[3]
+        atrous_kernel_shape = (kernel_side, kernel_side,
+                               input_x.get_shape()[3].value, num_kernels)
 
         kernels = utils.kernels(atrous_kernel_shape, "kernels")
         bias = utils.bias([num_kernels], "bias")
@@ -337,31 +339,32 @@ def get(num_classes, images_, keep_prob_, is_training_, train_phase=False):
             print(conv6)
             #output: 25x25x256, filters: (3x3x256)x256
 
+    num_kernels = FC_NEURONS
+    with tf.variable_scope(str(num_kernels)):
         with tf.variable_scope("conv7"):
-            conv7 = last_layer(conv6, (REAL_LAST_KERNEL_SIDE,
-                                       REAL_LAST_KERNEL_SIDE, num_kernels,
-                                       FC_NEURONS), LAST_CONV_INPUT_STRIDE)
+            conv7 = last_layer(conv6, REAL_LAST_KERNEL_SIDE, num_kernels,
+                               LAST_CONV_INPUT_STRIDE)
             print(conv7)
-            # output: 1x1xFC_NEURONS, filters: (LAST_KERNEL_SIDExLAST_KERNEL_SIDEx256)x256
-            # but parameters: (3x3x256)x256
-            # combine 256 features (extracted from the LAST_KERNEL_SIDExLAST_KERNEL_SIDEx256
+            # output: 1x1xFC_NEURONS, filters: (LAST_KERNEL_SIDExLAST_KERNEL_SIDExFC_NEURONS)xFC_NEURONS
+            # but parameters: (3x3xFC_NEURONS)xFC_NEURONS
+            # combine FC_NEURONS features (extracted from the LAST_KERNEL_SIDExLAST_KERNEL_SIDExFC_NEURONS
             # filters) into FC_NEURONS
 
         # 1x1xDepth convolutions, FC equivalent
-    with tf.variable_scope("fc1"):
-        fc1 = conv_layer(conv7, (1, 1, FC_NEURONS, FC_NEURONS), "VALID",
-                         (1, 1, 1, 1))
-    print(fc1)
-    # output: 1x1xNUM_NEURONS
+        with tf.variable_scope("fc1"):
+            fc1 = conv_layer(conv7, (1, 1, num_kernels, num_kernels), "VALID",
+                             (1, 1, 1, 1))
+        print(fc1)
+        # output: 1x1xNUM_NEURONS
 
-    with tf.variable_scope("fc2"):
-        fc2 = conv_layer(fc1, (1, 1, FC_NEURONS, FC_NEURONS), "VALID",
-                         (1, 1, 1, 1))
-    print(fc2)
-    # output: 1x1xNUM_NEURONS
+        with tf.variable_scope("fc2"):
+            fc2 = conv_layer(fc1, (1, 1, num_kernels, num_kernels), "VALID",
+                             (1, 1, 1, 1))
+        print(fc2)
+        # output: 1x1xNUM_NEURONS
 
     with tf.variable_scope("softmax_linear"):
-        out = conv_layer(fc2, (1, 1, FC_NEURONS, num_classes), "VALID",
+        out = conv_layer(fc2, (1, 1, num_kernels, num_classes), "VALID",
                          (1, 1, 1, 1))
     # output: (BATCH_SIZE)x1x1xnum_classes if the input has been properly scaled
     # otherwise is a map
