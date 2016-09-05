@@ -184,7 +184,7 @@ def train(args):
                     _, loss_val, summary_line, gs_value = sess.run(
                         [train_op, loss_op, summary_op, global_step],
                         feed_dict={
-                            keep_prob_: 0.75,
+                            keep_prob_: 0.9,
                             is_training_: True,
                             images_: train_images,
                             labels_: train_labels,

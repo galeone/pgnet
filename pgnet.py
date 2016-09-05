@@ -253,7 +253,7 @@ def get(num_classes, images_, keep_prob_, is_training_, train_phase=False):
     # 200x200x3
     print(images_)
 
-    num_kernels = 2**5  #32
+    num_kernels = 2**6  #64
     with tf.variable_scope(str(num_kernels)):
         with tf.variable_scope("conv1"):
             conv1 = eq_conv_layer(images_, KERNEL_SIDE, num_kernels,
@@ -261,27 +261,27 @@ def get(num_classes, images_, keep_prob_, is_training_, train_phase=False):
             if train_phase is True:
                 conv1 = tf.nn.dropout(conv1, keep_prob_, name="dropout")
             print(conv1)
-            #output: 200x200x32, filters: (3x3x3)x32
+            #output: 200x200x64, filters: (3x3x3)x64
 
         with tf.variable_scope("conv1.1"):
             conv1 = eq_conv_layer(conv1, KERNEL_SIDE, num_kernels,
                                   (1, 1, 1, 1), is_training_)
-            #output: 200x200x32, filters: (3x3x32)x32
+            #output: 200x200x64, filters: (3x3x64)x64
             print(conv1)
 
         with tf.variable_scope("conv2"):
             conv2 = eq_conv_layer(conv1, KERNEL_SIDE, num_kernels,
                                   (1, 2, 2, 1), is_training_)
-            #output: 100x100x32, filters: (3x3x32)x32
+            #output: 100x100x64, filters: (3x3x64)x64
             print(conv2)
 
         with tf.variable_scope("conv2.1"):
             conv2 = eq_conv_layer(conv2, KERNEL_SIDE, num_kernels,
                                   (1, 1, 1, 1), is_training_)
-            #output: 100x100x32, filters: (3x3x32)x32
+            #output: 100x100x64, filters: (3x3x64)x64
             print(conv2)
 
-    num_kernels *= 4  # 128
+    num_kernels *= 2  # 128
     with tf.variable_scope(str(num_kernels)):
         with tf.variable_scope("conv3"):
             conv3 = eq_conv_layer(conv2, KERNEL_SIDE, num_kernels,
@@ -289,7 +289,7 @@ def get(num_classes, images_, keep_prob_, is_training_, train_phase=False):
             #if train_phase is True:
             #    conv3 = tf.nn.dropout(conv3, keep_prob_, name="dropout")
             print(conv3)
-            #output: 100x100x128, filters: (3x3x32)x128
+            #output: 100x100x128, filters: (3x3x64)x128
 
         with tf.variable_scope("conv3.1"):
             conv3 = eq_conv_layer(conv3, KERNEL_SIDE, num_kernels,
