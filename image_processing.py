@@ -50,6 +50,15 @@ def read_image_png(image_path, depth=3):
         dtype=tf.float32)
 
 
+def read_image(image_path, channel, image_type):
+    """Wrapper around read_image_{jpg,png}"""
+    if image_type == "jpg":
+        image = read_image_jpg(image_path, 3)
+    else:
+        image = read_image_png(image_path, 3)
+    return image
+
+
 def distort_image(image, input_width, input_height, output_side):
     """Applies random distortion to the image.
     The output image is output_side x output_side x 3
@@ -128,11 +137,7 @@ def train_image(image_path,
     """Read the image from image_path.
     Applies distortions and rescale image between -1 and 1
     """
-
-    if image_type == "jpg":
-        image = read_image_jpg(image_path, 3)
-    else:
-        image = read_image_png(image_path, 3)
+    image = read_image(image_path, 3)
 
     image = distort_image(image, input_width, input_height, output_side)
     image = zm_mp(image)
@@ -144,10 +149,8 @@ def eval_image(image_path, output_side, image_type="jpg"):
     Read the image from image_path.
     Resize the read image to output_side² and rescale values to [-1, 1]
     """
-    if image_type == "jpg":
-        image = read_image_jpg(image_path, 3)
-    else:
-        image = read_image_png(image_path, 3)
+
+    image = read_image(image_path, 3, image_type)
 
     image = resize_bl(image, output_side)
     image = zm_mp(image)
@@ -165,10 +168,7 @@ def get_original_and_processed_image(image_path, side, image_type="jpg"):
         where original image is a tensor in the format [widht, height 3]
         eval_image is a 4-D tensor, with shape [1, w, h, 3]"""
 
-    if image_type == "jpg":
-        original_image = read_image_jpg(image_path, 3)
-    else:
-        original_image = read_image_png(image_path, 3)
+    original_image = read_image(image_path, 3, image_type)
 
     normalized_patches = []
 
@@ -191,10 +191,7 @@ def read_and_batchify_image(image_path, shape, image_type="jpg"):
         and patches is a tensor of processed images, ready to be classified, with size
         [batch_size, w, h, 3]"""
 
-    if image_type == "jpg":
-        original_image = read_image_jpg(image_path, 3)
-    else:
-        original_image = read_image_png(image_path, 3)
+    original_image = read_image(image_path, 3, image_type)
 
     # extract values from shape
     patch_side = shape[1]
