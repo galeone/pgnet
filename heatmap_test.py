@@ -29,7 +29,6 @@ PASCAL_LABELS = ["aeroplane", "bicycle", "bird", "boat", "bottle", "bus",
                  "train", "tvmonitor"]
 
 # detection constants
-BETA = 10
 MIN_PROB = 0.8
 RECT_SIMILARITY = 0.99
 
@@ -216,7 +215,12 @@ def main(args):
                 tf.less_equal(original_image_min_dim,
                               tf.constant(pgnet.INPUT_SIDE)),
                 lambda: tf.constant(pgnet.INPUT_SIDE),
-                lambda: tf.constant(pgnet.INPUT_SIDE) + tf.constant(pgnet.DOWNSAMPLING_FACTOR) * BETA * tf.cast(tf.floor(tf.maximum(original_image_dim[0],original_image_dim[1]) / tf.constant(pgnet.INPUT_SIDE)), dtype=tf.int32)
+                lambda: tf.constant(pgnet.INPUT_SIDE) + tf.constant(
+                    pgnet.DOWNSAMPLING_FACTOR * pgnet.LAST_CONV_INPUT_STRIDE) * tf.cast(
+                        tf.floor(
+                            tf.maximum(original_image_dim[0],
+                                original_image_dim[1]) / tf.constant(pgnet.INPUT_SIDE)
+                            ), dtype=tf.int32)
                 )
 
         eval_image = tf.expand_dims(
@@ -237,6 +241,7 @@ def main(args):
 
             input_image, input_image_side, image = sess.run(
                 [eval_image, eval_image_side, original_image])
+            print(input_image_side)
             start = time.time()
             probability_map, top_values, top_indices = sess.run(
                 [logits, top_k[0], top_k[1]],
@@ -266,9 +271,9 @@ def main(args):
                 group = defaultdict(lambda: defaultdict(float))
                 for pmap_y in range(probability_map.shape[1]):
                     # calculate position in the downsampled image ds
-                    ds_y = pmap_y * pgnet.CONV_STRIDE
+                    ds_y = pmap_y * pgnet.LAST_CONV_OUTPUT_STRIDE
                     for pmap_x in range(probability_map.shape[2]):
-                        ds_x = pmap_x * pgnet.CONV_STRIDE
+                        ds_x = pmap_x * pgnet.LAST_CONV_OUTPUT_STRIDE
 
                         if top_indices[probability_coords][
                                 0] != BACKGROUND_CLASS and top_values[
@@ -317,12 +322,14 @@ def main(args):
                 avg_freq = freq_sum / freq_count
 
                 # keep rectangles from local glance, only of the remaining labels
+                """
                 glance = {label: value
                           for label, value in glance.items()
                           if label in classes and rankmap[label] >= 0.03}
 
                 # remaining classes
                 print(glance.keys())
+                """
 
                 # merge overlapping rectangles for each class
                 global_rect_prob = group_overlapping_with_same_class(

@@ -27,20 +27,20 @@ TRAINED_MODEL_FILENAME = "model.pb"
 CSV_PATH = "~/data/PASCAL_2012_cropped"
 
 # train & validation parameters
-DISPLAY_STEP = 10
-MEASUREMENT_STEP = 20
 STEP_FOR_EPOCH = math.ceil(pascal_input.NUM_EXAMPLES_PER_EPOCH_FOR_TRAIN /
                            pgnet.BATCH_SIZE)
+DISPLAY_STEP = math.ceil(STEP_FOR_EPOCH / 50)
+MEASUREMENT_STEP = DISPLAY_STEP
 MAX_ITERATIONS = STEP_FOR_EPOCH * 500
 
 # stop when
-AVG_VALIDATION_ACCURACY_EPOCHS = 60
+AVG_VALIDATION_ACCURACY_EPOCHS = 50
 # list of average validation at the end of every epoch
 AVG_VALIDATION_ACCURACIES = [0.0
                              for _ in range(AVG_VALIDATION_ACCURACY_EPOCHS)]
 
 # tensorflow saver constant
-SAVE_MODEL_STEP = 500
+SAVE_MODEL_STEP = math.ceil(STEP_FOR_EPOCH / 2)
 
 
 def train(args):
@@ -83,8 +83,8 @@ def train(args):
                 labels_ = tf.placeholder(
                     tf.int64, shape=[None], name="labels_")
 
-                keep_prob_, images_, logits = pgnet.define_model(
-                    num_classes, is_training=True)
+                is_training_, keep_prob_, images_, logits = pgnet.define_model(
+                    num_classes, train_phase=True)
 
                 # loss op
                 loss_op = pgnet.loss(logits, labels_)
@@ -125,8 +125,7 @@ def train(args):
 
             # create a saver: to store current computation and restore the graph
             # useful when the train step has been interrupeted
-            variables_to_save = tf.trainable_variables()
-            variables_to_save.append(global_step)
+            variables_to_save = pgnet.variables_to_save([global_step])
             saver = tf.train.Saver(variables_to_save)
 
             # tensor flow operator to initialize all the variables in a session
@@ -150,6 +149,7 @@ def train(args):
                             images_: validation_images,
                             labels_: validation_labels,
                             keep_prob_: 1.0,
+                            is_training_: False,
                             accuracy_name_: "validation_accuracy"
                         })
                     return validation_accuracy, summary_line
@@ -184,7 +184,8 @@ def train(args):
                     _, loss_val, summary_line, gs_value = sess.run(
                         [train_op, loss_op, summary_op, global_step],
                         feed_dict={
-                            keep_prob_: 0.5,
+                            keep_prob_: 0.9,
+                            is_training_: True,
                             images_: train_images,
                             labels_: train_labels,
                         })
@@ -202,6 +203,7 @@ def train(args):
                             sess.run(reshaped_logits,
                                      feed_dict={
                                          keep_prob_: 1.0,
+                                         is_training_: False,
                                          images_: train_images,
                                          labels_: train_labels
                                      }),
@@ -230,6 +232,7 @@ def train(args):
                                 images_: train_images,
                                 labels_: train_labels,
                                 keep_prob_: 1.0,
+                                is_training_: False,
                                 accuracy_name_: "training_accuracy"
                             })
 
