@@ -41,7 +41,7 @@ FC_NEURONS = 2048
 
 # train constants
 BATCH_SIZE = 64
-LEARNING_RATE = 1e-5
+LEARNING_RATE = 2e-4
 
 # output tensor name
 OUTPUT_TENSOR_NAME = "softmax_linear/out"
@@ -288,8 +288,8 @@ def get(num_classes, images_, keep_prob_, is_training_, train_phase=False):
         with tf.variable_scope("conv3"):
             conv3 = eq_conv_layer(conv2, KERNEL_SIDE, num_kernels,
                                   (1, 1, 1, 1), is_training_)
-            #if train_phase is True:
-            #    conv3 = tf.nn.dropout(conv3, keep_prob_, name="dropout")
+            if train_phase is True:
+                conv3 = tf.nn.dropout(conv3, keep_prob_, name="dropout")
             print(conv3)
             #output: 100x100x128, filters: (3x3x64)x128
 
@@ -316,8 +316,8 @@ def get(num_classes, images_, keep_prob_, is_training_, train_phase=False):
         with tf.variable_scope("conv5"):
             conv5 = eq_conv_layer(conv4, KERNEL_SIDE, num_kernels,
                                   (1, 1, 1, 1), is_training_)
-            #if train_phase is True:
-            #    conv5 = tf.nn.dropout(conv5, keep_prob_, name="dropout")
+            if train_phase is True:
+                conv5 = tf.nn.dropout(conv5, keep_prob_, name="dropout")
             print(conv5)
             #output: 50x50x256, filters: (3x3x128)x256
 
@@ -344,6 +344,8 @@ def get(num_classes, images_, keep_prob_, is_training_, train_phase=False):
         with tf.variable_scope("conv7"):
             conv7 = last_layer(conv6, REAL_LAST_KERNEL_SIDE, num_kernels,
                                LAST_CONV_INPUT_STRIDE)
+            if train_phase is True:
+                conv7 = tf.nn.dropout(conv7, keep_prob_, name="dropout")
             print(conv7)
             # output: 1x1xFC_NEURONS, filters: (LAST_KERNEL_SIDExLAST_KERNEL_SIDExFC_NEURONS)xFC_NEURONS
             # but parameters: (3x3xFC_NEURONS)xFC_NEURONS
@@ -354,14 +356,18 @@ def get(num_classes, images_, keep_prob_, is_training_, train_phase=False):
         with tf.variable_scope("fc1"):
             fc1 = conv_layer(conv7, (1, 1, num_kernels, num_kernels), "VALID",
                              (1, 1, 1, 1))
-        print(fc1)
-        # output: 1x1xNUM_NEURONS
+            if train_phase is True:
+                fc1 = tf.nn.dropout(fc1, keep_prob_, name="dropout")
+            print(fc1)
+            # output: 1x1xNUM_NEURONS
 
         with tf.variable_scope("fc2"):
             fc2 = conv_layer(fc1, (1, 1, num_kernels, num_kernels), "VALID",
                              (1, 1, 1, 1))
-        print(fc2)
-        # output: 1x1xNUM_NEURONS
+            if train_phase is True:
+                fc2 = tf.nn.dropout(fc2, keep_prob_, name="dropout")
+            print(fc2)
+            # output: 1x1xNUM_NEURONS
 
     with tf.variable_scope("softmax_linear"):
         out = conv_layer(fc2, (1, 1, num_kernels, num_classes), "VALID",
