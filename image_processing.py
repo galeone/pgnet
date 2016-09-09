@@ -137,8 +137,7 @@ def train_image(image_path,
     """Read the image from image_path.
     Applies distortions and rescale image between -1 and 1
     """
-    image = read_image(image_path, 3)
-
+    image = read_image(image_path, 3, image_type)
     image = distort_image(image, input_width, input_height, output_side)
     image = zm_mp(image)
     return image
@@ -151,7 +150,6 @@ def eval_image(image_path, output_side, image_type="jpg"):
     """
 
     image = read_image(image_path, 3, image_type)
-
     image = resize_bl(image, output_side)
     image = zm_mp(image)
     return image
