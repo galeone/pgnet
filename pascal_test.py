@@ -67,19 +67,24 @@ def main(args):
 
         # now the current graph contains the trained model
 
-        # exteact the pgnet output from the graph and scale the result
-        # using softmax
-        softmax_linear = graph.get_tensor_by_name(pgnet.OUTPUT_TENSOR_NAME +
-                                                  ":0")
-        # softmax_linear is the output of a 1x1xNUM_CLASS convolution
-        # to use the softmax we have to reshape it back to (?,NUM_CLASS)
-        softmax_linear = tf.squeeze(softmax_linear, [1, 2])
-        softmax = tf.nn.softmax(softmax_linear, name="softmax")
+        # input placeholder
+        images_ = graph.get_tensor_by_name(pgnet.INPUT_TENSOR_NAME + ":0")
+        logits = graph.get_tensor_by_name(pgnet.OUTPUT_TENSOR_NAME + ":0")
+        # (?, n, n, NUM_CLASSES) tensor
+        # each cell in coords (batch_position, i, j) -> is a probability vector
+        per_region_probabilities = tf.nn.softmax(
+            tf.reshape(logits, [-1, num_classes]))
+        # logits is the output of a 1x1xNUM_CLASS convolution
 
-        # get the input queue of resized (or cropped) test images
-        # use 29 as batch_size because is a divisor of the test dataset size
-        test_resize_queue, test_resize_filename_queue = pascal_input.test(
-            args.test_ds, 29, args.test_ds + "/ImageSets/Main/test.txt")
+        # classification by localization
+        k = 1
+        input_side = pgnet.INPUT_SIDE + pgnet.LAST_CONV_INPUT_STRIDE * pgnet.DOWNSAMPLING_FACTOR * k
+
+        # get the input queue of resized test images
+        # use 29 as batch_size because is a proper divisor of the test dataset size
+        test_queue, test_filename_queue = pascal_input.test(
+            args.test_ds, 29, input_side,
+            args.test_ds + "/ImageSets/Main/test.txt")
 
         init_op = tf.initialize_all_variables()
 
@@ -97,40 +102,22 @@ def main(args):
                 processed = 0
                 while not coord.should_stop():
                     # extract batches from queues
-                    #image_batch_cropped, filename_batch_cropped = sess.run(
-                    #    [test_center_cropped_queue,
-                    #     test_center_cropped_filename_queue])
-
-                    # run predction on images central cropped (or padded)
-                    #batch_predictions_cropped = sess.run(
-                    #    softmax,
-                    #    feed_dict={
-                    #        "images_:0": image_batch_cropped,
-                    #    })
-
-                    image_batch_resize, filename_batch_resize = sess.run(
-                        [test_resize_queue, test_resize_filename_queue])
+                    image_batch, filename_batch = sess.run(
+                        [test_queue, test_filename_queue])
 
                     # run prediction on images resized
-                    batch_predictions_resize = sess.run(softmax,
-                                                        feed_dict={
-                                                            "images_:0":
-                                                            image_batch_resize,
-                                                        })
+                    batch_predictions = sess.run(
+                        softmax, feed_dict={images_: image_batch})
 
                     for batch_elem_id, prediction_probs in enumerate(
                             #batch_predictions_cropped):
-                            batch_predictions_resize):
-                        decoded_filename = filename_batch_resize[
+                            batch_predictions):
+                        decoded_filename = filename_batch[
                             batch_elem_id].decode("utf-8")
                         print(decoded_filename)
                         for idx, pred in enumerate(prediction_probs):
-                            #avg_pred = (
-                            #    pred + batch_predictions_resize[batch_elem_id][idx]
-                            #) / 2
-                            avg_pred = pred
                             files[build_trainval.CLASSES[idx]].write(
-                                "{} {}\n".format(decoded_filename, avg_pred))
+                                "{} {}\n".format(decoded_filename, pred))
 
                         processed += 1
 

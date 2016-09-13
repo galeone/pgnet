@@ -45,6 +45,8 @@ LEARNING_RATE = 2e-4
 
 # output tensor name
 OUTPUT_TENSOR_NAME = "softmax_linear/out"
+# input tensor name
+INPUT_TENSOR_NAME = "images_"
 
 # name of the collection that holds non trainable
 # but required variables for the current model
@@ -347,10 +349,11 @@ def get(num_classes, images_, keep_prob_, is_training_, train_phase=False):
             if train_phase is True:
                 conv7 = tf.nn.dropout(conv7, keep_prob_, name="dropout")
             print(conv7)
-            # output: 1x1xFC_NEURONS, filters: (LAST_KERNEL_SIDExLAST_KERNEL_SIDExFC_NEURONS)xFC_NEURONS
+            # output: 1x1xFC_NEURONS,
+            # filters: (LAST_KERNEL_SIDExLAST_KERNEL_SIDExFC_NEURONS)xFC_NEURONS
             # but parameters: (3x3xFC_NEURONS)xFC_NEURONS
-            # combine FC_NEURONS features (extracted from the LAST_KERNEL_SIDExLAST_KERNEL_SIDExFC_NEURONS
-            # filters) into FC_NEURONS
+            # combine FC_NEURONS features (extracted from
+            # LAST_KERNEL_SIDExLAST_KERNEL_SIDExFC_NEURONS filters) into FC_NEURONS
 
         # 1x1xDepth convolutions, FC equivalent
         with tf.variable_scope("fc1"):
@@ -460,7 +463,7 @@ def define_model(num_classes, train_phase):
     images_ = tf.placeholder(
         tf.float32,
         shape=(None, INPUT_SIDE, INPUT_SIDE, INPUT_DEPTH),
-        name="images_")
+        name=INPUT_TENSOR_NAME)
 
     # build a graph that computes the logits predictions from the images
     logits = get(num_classes,

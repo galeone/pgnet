@@ -9,7 +9,6 @@
 
 import os
 import tensorflow as tf
-import pgnet
 import image_processing
 
 # Global constants describing the cropped pascal data set.
@@ -59,14 +58,14 @@ def _generate_image_and_label_batch(image,
                                     task='train'):
     """Construct a queued batch of images and labels.
     Args:
-      image: 3-D Tensor of [pgnet.INPUT_SIDE, pgnet.INPUT_SIDE, DEPTH] of type.float32.
+      image: 3-D Tensor of [input_side, input_side, 3] of type.float32.
       label: 1-D Tensor of type int64
       min_queue_examples: int64, minimum number of samples to retain
         in the queue that provides of batches of examples. The higher the most random (! important)
     batch_size: Number of images per batch.
     task: 'train' or 'validation'. In both cases use a shuffle queue
     Returns:
-    images: Images. 4D tensor of [batch_size, pgnet.INPUT_SIDE, pgnet.INPUT_SIDE, DEPTH] size.
+    images: Images. 4D tensor of [batch_size, input_side, input_side, 3] size.
     labels: Labels. 1D tensor of [batch_size] size.
     """
     assert task == 'train' or task == 'validation'
@@ -83,8 +82,7 @@ def _generate_image_and_label_batch(image,
         min_after_dequeue=min_queue_examples)
 
     # Display the training images in the visualizer.
-    # add a scope to the summary. If shuffle=True, we're training
-    # else we're validating
+    # Add a scope to the summary.
     tf.image_summary(task + '/images', images)
 
     return images, sparse_labels
@@ -92,6 +90,7 @@ def _generate_image_and_label_batch(image,
 
 def train(cropped_dataset_path,
           batch_size,
+          input_side,
           csv_path=os.path.abspath(os.getcwd())):
     """Returns a batch of images from the train dataset.
     Applies random distortion to the examples.
@@ -99,9 +98,10 @@ def train(cropped_dataset_path,
     Args:
         cropped_dataset_path: path of the cropped pascal dataset
         batch_size: Number of images per batch.
+
         csv_path: path of train.csv
     Returns:
-        images: Images. 4D tensor of [batch_size, pgnet.INPUT_SIDE, pgnet.INPUT_SIDE, DEPTH size.
+        images: Images. 4D tensor of [batch_size, input_side, input_side, 3 size.
         labes: Labels. 1D tensor of [batch_size] size.
     """
     cropped_dataset_path = os.path.abspath(
@@ -115,11 +115,10 @@ def train(cropped_dataset_path,
     image_path, label, widht, height = read_cropped_pascal(
         tf.constant(cropped_dataset_path), queue)
 
-    # read the image and cast it to float32
-    # apply random distortions and resize image to:
-    # pgnet.INPUT_SIDE x pgnet.INPUT_SIDE x pgnet.INPUT_DEPTH
+    # read, random distortion, resize to input_side²
+    # and scale value between [-1,1]
     distorted_image = image_processing.train_image(
-        image_path, widht, height, pgnet.INPUT_SIDE, image_type="jpg")
+        image_path, widht, height, input_side, image_type="jpg")
 
     # Ensure that the random shuffling has good mixing properties.
     fraction_of_examples_in_queue = 0.8
@@ -135,15 +134,17 @@ def train(cropped_dataset_path,
 
 def validation(cropped_dataset_path,
                batch_size,
+               input_side,
                csv_path=os.path.abspath(os.getcwd())):
     """Returns a batch of images from the validation dataset
 
     Args:
         cropped_dataset_path: path of the cropped pascal dataset
         batch_size: Number of images per batch.
+        input_side: resize images to shape [input_side, input_side, 3]
         csv_path: path of valdation.csv
     Returns:
-        images: Images. 4D tensor of [batch_size, pgnet.INPUT_SIDE, pgnet.INPUT_SIDE, DEPTH size.
+        images: Images. 4D tensor of [batch_size, input_side, input_side, 3 size.
         labes: Labels. 1D tensor of [batch_size] size.
     """
 
@@ -157,9 +158,9 @@ def validation(cropped_dataset_path,
     image_path, label, _, _ = read_cropped_pascal(
         tf.constant(cropped_dataset_path), queue)
 
-    # read and resize image
+    # read, resize, scale between [-1,1]
     image = image_processing.eval_image(
-        image_path, pgnet.INPUT_SIDE, image_type="jpg")
+        image_path, input_side, image_type="jpg")
 
     # Ensure that the random shuffling has good mixing properties.
     fraction_of_examples_in_queue = 0.8
@@ -179,17 +180,19 @@ def validation(cropped_dataset_path,
 
 def test(test_dataset_path,
          batch_size,
+         input_side,
          file_list_path=os.path.abspath(os.getcwd())):
     """Returns a batch of images from the test dataset.
 
     Args:
         test_dataset_path: path of the test dataset
         batch_size: Number of images per batch.
+        input_side: resize images to shape [input_side, input_side, 3]
         file_list_path: path (into the test dataset usually) where to find the list of file to read.
                         specify the filename and the path here, eg:
                          ~/data/PASCAL_2012/test/VOCdevkit/VOC2012/ImageSets/Main/test.txt
     Returns:
-        images: Images. 4D tensor of [batch_size, pgnet.INPUT_SIDE, pgnet.INPUT_SIDE, DEPTH] size.
+        images: Images. 4D tensor of [batch_size, input_side, input_side, 3] size.
         filenames: file names. [batch_size] tensor with the fileneme read. (without extension)
     """
 
@@ -209,15 +212,16 @@ def test(test_dataset_path,
     image_path = test_dataset_path + tf.constant(
         "/JPEGImages/") + filename + tf.constant(".jpg")
 
-    image = image_processing.read_image_jpg(image_path)
-    image = image_processing.resize_bl(image, pgnet.INPUT_SIDE)
+    # read, resize, scale between [-1,1]
+    image = image_processing.eval_image(
+        image_path, input_side, image_type="jpg")
 
     # create a batch of images & filenames
     # (using a queue runner, that extracts image from the queue)
     images, filenames = tf.train.batch(
         [image, filename],
         batch_size,
-        shapes=[[pgnet.INPUT_SIDE, pgnet.INPUT_SIDE, pgnet.INPUT_DEPTH], []],
+        shapes=[[input_side, input_side, 3], []],
         num_threads=1,
         capacity=20000,
         enqueue_many=False)

@@ -65,7 +65,8 @@ def main(args):
         top_5_op = tf.nn.in_top_k(logits, labels_, 5)
 
         image_queue, label_queue = pascifar_input.test(
-            args.test_ds, BATCH_SIZE, args.test_ds + "/ts.csv")
+            args.test_ds, BATCH_SIZE, pgnet.INPUT_SIDE,
+            args.test_ds + "/ts.csv")
 
         # initialize all variables
         init_op = tf.group(tf.initialize_all_variables(),
@@ -84,15 +85,12 @@ def main(args):
                 count_top_1 = 0.0
                 count_top_5 = 0.0
                 processed = 0
-                #sum_accuracy_per_class = {label: 0.0
-                #                          for label in PASCAL2PASCIFAR.values()
-                #                          }
                 while not coord.should_stop():
                     image_batch, label_batch = sess.run(
                         [image_queue, label_queue])
                     print(label_batch)
 
-                    top_1, top_5, pl = sess.run(
+                    top_1, top_5, pred_lab = sess.run(
                         [top_1_op, top_5_op, predicted_labels],
                         feed_dict={
                             "images_:0": image_batch,
@@ -101,8 +99,7 @@ def main(args):
                     count_top_1 += np.sum(top_1)
                     count_top_5 += np.sum(top_5)
                     processed += 1
-                    print(pl)
-
+                    print(pred_lab)
                     print(label_batch)
                     print(top_1, top_5)
 
@@ -113,8 +110,6 @@ def main(args):
 
                 print('precision @ 1 = {} recall @ 5 = {} [{} examples]'.
                       format(precision_at_1, recall_at_5, total_sample_count))
-                print("Accuracy per class: ")
-                # TODO
             finally:
                 # When done, ask the threads to stop.
                 coord.request_stop()

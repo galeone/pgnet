@@ -10,7 +10,6 @@
 import os
 import tensorflow as tf
 import image_processing
-import pgnet
 
 # The depth of the example
 INPUT_DEPTH = 3
@@ -48,17 +47,21 @@ def read_pascifar(pascifar_path, queue):
     return image_path, label
 
 
-def test(pascifar_path, batch_size, csv_path=os.path.abspath(os.getcwd())):
+def test(pascifar_path,
+         batch_size,
+         input_side,
+         csv_path=os.path.abspath(os.getcwd())):
     """Returns a batch of images from the test dataset.
 
     Args:
         pascifar_path: path of the test dataset
         batch_size: Number of images per batch.
+        input_side: resize images to shape [input_side, input_side, 3]
         csv_path: path (into the test dataset usually) where to find the list of file to read.
                         specify the filename and the path here, eg:
                          ~/data/PASCAL_2012/test/VOCdevkit/VOC2012/ImageSets/Main/test.txt
     Returns:
-        images: Images. 4D tensor of [batch_size, pgnet.INPUT_SIDE, pgnet.INPUT_SIDE, DEPTH] size.
+        images: Images. 4D tensor of [batch_size, input_side, input_side, DEPTH] size.
         filenames: file names. [batch_size] tensor with the fileneme read. (without extension)
     """
 
@@ -71,16 +74,16 @@ def test(pascifar_path, batch_size, csv_path=os.path.abspath(os.getcwd())):
 
     image_path, label = read_pascifar(pascifar_path, queue)
 
-    # read image
+    # read, resize, scale between [-1,1]
     image = image_processing.eval_image(
-        image_path, pgnet.INPUT_SIDE, image_type="png")
+        image_path, input_side, image_type="png")
 
     # create a batch of images & filenames
     # (using a queue runner, that extracts image from the queue)
     images, labels = tf.train.batch(
         [image, label],
         batch_size,
-        shapes=[[pgnet.INPUT_SIDE, pgnet.INPUT_SIDE, pgnet.INPUT_DEPTH], []],
+        shapes=[[input_side, input_side, INPUT_DEPTH], []],
         num_threads=1,
         capacity=20000,
         enqueue_many=False,
