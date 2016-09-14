@@ -13,7 +13,6 @@ import sys
 import time
 import math
 from collections import defaultdict
-import operator
 import tensorflow as tf
 import cv2
 import numpy as np
@@ -29,8 +28,7 @@ PASCAL_LABELS = ["aeroplane", "bicycle", "bird", "boat", "bottle", "bus",
                  "train", "tvmonitor"]
 
 # detection constants
-MIN_PROB = 0.8
-RECT_SIMILARITY = 0.99
+RECT_SIMILARITY = 0.9
 
 # trained pgnet constants
 BACKGROUND_CLASS = 20
@@ -46,12 +44,14 @@ LABEL_COLORS = {label: rnd_color() for label in PASCAL_LABELS}
 
 
 def legend():
+    """Display a box containing the associations between
+    colors and labels"""
     image = np.zeros((400, 200, 3), dtype=np.uint8)
-    y = 20
+    height = 20
     for label in PASCAL_LABELS:
         color = LABEL_COLORS[label]
-        cv2.putText(image, label, (5, y), 0, 1, color, thickness=2)
-        y += 20
+        cv2.putText(image, label, (5, height), 0, 1, color, thickness=2)
+        height += 20
 
     cv2.imshow("legend", image)
 
@@ -98,38 +98,91 @@ def draw_box(image, rect, label, color, thickness=1):
         thickness=thickness)
     cv2.putText(
         image,
-        label, (rect[0] + 10, rect[1] + 10),
+        label, (rect[0] + 15, rect[1] + 15),
         0,
         1,
         color,
         thickness=thickness)
 
 
+def intersection(rect_a, rect_b):
+    """Returns the intersection of rect_a and rect_b."""
+
+    left = min(rect_a[0], rect_b[0])
+    top = min(rect_a[1], rect_b[1])
+
+    a_width = abs(rect_a[0] - rect_a[2])
+    b_width = abs(rect_b[0] - rect_b[2])
+    a_height = abs(rect_a[1] - rect_a[3])
+    b_height = abs(rect_b[1] - rect_b[3])
+
+    right = min(rect_a[0] + a_width, rect_b[0] + b_width)
+    bottom = min(rect_a[1] + a_height, rect_b[1] + b_height)
+
+    width = right - left
+    height = bottom - top
+
+    if left <= right and top <= bottom:
+        return (left, top, width, height)
+    return ()
+
+
 def intersect(rect_a, rect_b):
     """Returns true if rect_a intersects rect_b"""
-    x = max(rect_a[0], rect_b[0])
-    y = max(rect_a[1], rect_b[1])
-    w = min(rect_a[0] + rect_a[2], rect_b[0] + rect_b[2]) - x
-    h = min(rect_a[1] + rect_a[3], rect_b[1] + rect_b[3]) - y
-    if w < 0 or h < 0:
-        return False
-    return True
+    return intersection(rect_a, rect_b) != ()
 
 
-def norm(p0):
-    """Returns sqrt(p0[0]**2 + p0[1]**2)"""
-    return math.sqrt(p0[0]**2 + p0[1]**2)
+def merge(rect_a, rect_b):
+    """Returns the merge of rect_a and rect_b"""
+    left = min(rect_a[0], rect_b[0])
+    top = min(rect_a[1], rect_b[1])
+    right = max(rect_a[0] + abs(rect_a[0] - rect_a[2]),
+                rect_b[0] + abs(rect_b[0] - rect_b[2]))
+    bottom = max(rect_a[1] + abs(rect_a[1] - rect_a[3]),
+                 rect_b[1] + abs(rect_b[1] - rect_b[3]))
+    return (left, top, right - left, bottom - top)
 
 
-def l2(p0, p1):
-    """Returns norm((p0[0] - p1[0], p0[1] - p1[1]))"""
-    return norm((p0[0] - p1[0], p0[1] - p1[1]))
+def norm(point):
+    """Returns sqrt(point[0]**2 + point[1]**2)"""
+    return math.sqrt(point[0]**2 + point[1]**2)
 
 
-def group_overlapping_with_same_class(map_of_regions, keep_singles=False):
-    """merge overlapping rectangles with the same class
-    Merge if there's overlapping between at leat 2 regions if keep_singles=False
-    otherwise it keeps single rectangles.
+def l2_distance(point_a, point_b):
+    """Returns norm((point_a[0] - point_b[0], point_a[1] - point_b[1]))"""
+    return norm((point_a[0] - point_b[0], point_a[1] - point_b[1]))
+
+
+def merge_overlapping(rects_probs):
+    tot = len(rects_probs)
+    skip_idx = []
+    merged_rects_probs = defaultdict(list)
+
+    for i in range(0, tot - 1):
+        merged = 0
+        for j in range(i + 1, tot):
+            if j not in skip_idx and intersect(rects_probs[i][0],
+                                               rects_probs[j][0]):
+                skip_idx.append(j)
+                if len(merged_rects_probs[i]) == 0:
+                    merged_rects_probs[i] = rects_probs[i]
+                merged_rects_probs[i][0] = merge(merged_rects_probs[i][0],
+                                                 rects_probs[j][0])
+                merged_rects_probs[i][1] += rects_probs[j][1]
+                merged += 1
+
+        # consider first rectangle (centroid)
+        merged += 1
+        if merged > 1:
+            merged_rects_probs[i][1] /= merged
+            merged_rects_probs[i].append(merged)
+
+    return merged_rects_probs.values()
+
+
+def group_overlapping_with_same_class(map_of_regions):
+    """merge overlapping rectangles with the same class.
+    Merge only rectangles with at lest threshold intersections.
     Args:
         map_of_regions:  {"label": [[rect1, p1], [rect2, p2], ..], "label2"...}
     """
@@ -137,28 +190,37 @@ def group_overlapping_with_same_class(map_of_regions, keep_singles=False):
     for label, rect_prob_list in map_of_regions.items():
         # extract rectangles from the array of pairs
         rects_only = np.array([value[0] for value in rect_prob_list])
+        print(rects_only.size)
+
         # group them
-        factor = 2 if keep_singles else 1
         rect_list, _ = cv2.groupRectangles(
-            rects_only.tolist() * factor, 1, eps=RECT_SIMILARITY)
+            rects_only.tolist(), 1, eps=RECT_SIMILARITY)
 
-        # calculate probability of the grouped rectangles as the mean prob
-        merged_rect_prob_list = []
-        for merged_rect in rect_list:
-            sum_of_prob = 0.0
-
-            merged_count = 0
-            for idx, original_rect in enumerate(rects_only):
-                if intersect(original_rect, merged_rect):
-                    original_rect_prob = rect_prob_list[idx][1]
-                    sum_of_prob += original_rect_prob
-                    merged_count += 1
-
-            avg_prob = sum_of_prob / merged_count
-            merged_rect_prob_list.append((merged_rect, avg_prob))
+        tot = len(rect_list)
 
         if len(rect_list) > 0:
-            grouped_map[label] = merged_rect_prob_list
+            # for every merged rectangle, calculate the avg prob and
+            # the number of intersection
+            merged_rect_infos = []
+            for merged_rect in rect_list:
+                sum_of_prob = 0.0
+                merged_count = 0
+                for idx, original_rect in enumerate(rects_only):
+                    if intersect(original_rect, merged_rect):
+                        sum_of_prob += rect_prob_list[idx][1]
+                        merged_count += 1
+
+                if merged_count > 0:
+                    avg_prob = sum_of_prob / merged_count
+                    merged_rect_infos.append(
+                        (merged_rect, avg_prob, merged_count, merged_count / rects_only.size))
+
+            grouped_map[label] = merged_rect_infos
+        """
+        merged_rect_infos = merge_overlapping(rect_prob_list)
+        grouped_map[label] = merged_rect_infos
+        """
+
     return grouped_map
 
 
@@ -193,14 +255,15 @@ def main(args):
 
         # (?, n, n, NUM_CLASSES) tensor
         logits = graph.get_tensor_by_name(pgnet.OUTPUT_TENSOR_NAME + ":0")
+        images_ = graph.get_tensor_by_name(pgnet.INPUT_TENSOR_NAME + ":0")
         # each cell in coords (batch_position, i, j) -> is a probability vector
-        per_roi_probabilities = tf.nn.softmax(
+        per_region_probabilities = tf.nn.softmax(
             tf.reshape(logits, [-1, num_classes]))
         # [tested positions, num_classes]
 
         # array[0]=values, [1]=indices
         # get every probabiliy, because we can use localization to do classification
-        top_k = tf.nn.top_k(per_roi_probabilities, k=num_classes)
+        top_k = tf.nn.top_k(per_region_probabilities, k=num_classes)
         # each with shape [tested_positions, k]
 
         original_image = tf.image.convert_image_dtype(
@@ -209,32 +272,19 @@ def main(args):
                 args.image_path.split('.')[-1]),
             dtype=tf.uint8)
         original_image_dim = tf.shape(original_image)
-        original_image_min_dim = tf.minimum(original_image_dim[0],
-                                            original_image_dim[1])
+
+        k = 2
         eval_image_side = tf.cond(
-                tf.less_equal(original_image_min_dim,
-                              tf.constant(pgnet.INPUT_SIDE)),
-                lambda: tf.constant(pgnet.INPUT_SIDE),
-                lambda: tf.constant(pgnet.INPUT_SIDE) + tf.constant(
-                    pgnet.DOWNSAMPLING_FACTOR * pgnet.LAST_CONV_INPUT_STRIDE) * tf.cast(
-                        tf.floor(
-                            tf.maximum(original_image_dim[0],
-                                original_image_dim[1]) / tf.constant(pgnet.INPUT_SIDE)
-                            ), dtype=tf.int32)
-                )
+            tf.less_equal(
+                tf.minimum(original_image_dim[0], original_image_dim[1]),
+                tf.constant(pgnet.INPUT_SIDE)),
+            lambda: tf.constant(pgnet.INPUT_SIDE),
+            lambda: tf.constant(pgnet.INPUT_SIDE + pgnet.DOWNSAMPLING_FACTOR * pgnet.LAST_CONV_INPUT_STRIDE * k))
 
         eval_image = tf.expand_dims(
             image_processing.zm_mp(
                 image_processing.resize_bl(original_image, eval_image_side)),
             0)
-
-        # roi placehoder
-        roi_ = tf.placeholder(tf.uint8)
-        # rop preprocessing, single image classification
-        roi_preproc = image_processing.zm_mp(
-            image_processing.resize_bl(
-                tf.image.convert_image_dtype(roi_, tf.float32),
-                pgnet.INPUT_SIDE))
 
         with tf.Session(config=tf.ConfigProto(
                 allow_soft_placement=True)) as sess:
@@ -244,10 +294,7 @@ def main(args):
             print(input_image_side)
             start = time.time()
             probability_map, top_values, top_indices = sess.run(
-                [logits, top_k[0], top_k[1]],
-                feed_dict={
-                    "images_:0": input_image
-                })
+                [logits, top_k[0], top_k[1]], feed_dict={images_: input_image})
 
             # let's think to the net as a big net, with the last layer (before the FC
             # layers for classification) with a receptive field of
@@ -265,6 +312,12 @@ def main(args):
                     [image.shape[1] / input_image_side,
                      image.shape[0] / input_image_side])
 
+                # shape of the rectangle analyzed in the original image
+                analyzed_shape = np.array([image.shape[1], image.shape[0]]) * (
+                    math.sqrt(pgnet.INPUT_SIDE *
+                              pgnet.LAST_KERNEL_SIDE) / input_image_side)
+                print(analyzed_shape)
+
                 probability_coords = 0
                 glance = defaultdict(list)
                 # select count(*), avg(prob) from map group by label, order by count, avg.
@@ -276,8 +329,7 @@ def main(args):
                         ds_x = pmap_x * pgnet.LAST_CONV_OUTPUT_STRIDE
 
                         if top_indices[probability_coords][
-                                0] != BACKGROUND_CLASS and top_values[
-                                    probability_coords][0] > MIN_PROB:
+                                0] != BACKGROUND_CLASS:
 
                             # create coordinates of rect in the downsampled image
                             # convert to numpy array in order to use broadcast ops
@@ -306,105 +358,32 @@ def main(args):
 
                 # consider the positions of the remaining classes
                 looked_pos = sum(value['count'] for value in group.values())
+                print(looked_pos)
+                looked_pos_side = int(math.sqrt(looked_pos))
+                # una volta indivuduato di quanto si sovrappongono le zone analizzate
+                # contare quante sovrapposizioni sono possibili in una regione e triggherare quando
+                # vengono identificate sovrapposizioni in numero >= a metà del valore massimo
+                min_img_orig_side = min([image.shape[1], image.shape[0]])
+                min_analyzed_region_side = min(analyzed_shape)
+                overlap_amount = math.floor(
+                    (looked_pos_side * min_analyzed_region_side -
+                     min_img_orig_side) / looked_pos_side) - 1
+                print(overlap_amount)
+                min_intersection = math.floor(overlap_amount / 2)
+                print(min_intersection)
 
                 # Save the relative frequency for every class
-                rankmap = defaultdict(float)
-                freq_sum = 0.0
-                freq_count = 0
+                # To trigger a match, at least a fraction of intersection should be present
                 for label in group:
-                    relative_freq = group[label]["count"] / looked_pos
-                    rankmap[label] = relative_freq
+                    group[label]["prob"] /= group[label]["count"]
+                    group[label]["freq"] = group[label]["count"] / looked_pos
                     print('{}, {}, {} => RF {}'.format(label, group[label][
-                        "prob"], group[label]["count"], relative_freq))
-                    freq_sum += relative_freq
-                    freq_count += 1
+                        "prob"], group[label]["count"], group[label]["freq"]))
 
-                avg_freq = freq_sum / freq_count
-
-                # keep rectangles from local glance, only of the remaining labels
-                """
-                glance = {label: value
-                          for label, value in glance.items()
-                          if label in classes and rankmap[label] >= 0.03}
-
-                # remaining classes
-                print(glance.keys())
-                """
-
-                # merge overlapping rectangles for each class
-                global_rect_prob = group_overlapping_with_same_class(
-                    glance, keep_singles=True)
-
-                # loop preserving order, because rois are evaluated in order
-                rois = []
-                rois_count = 0
-                for label, relative_freq in sorted(
-                        rankmap.items(), key=operator.itemgetter(1),
-                        reverse=True):
-                    # extract rectangles for each image and classify it.
-                    # if the classification gives the same global label as top-1(2,3?) draw it
-                    # else skip it.
-
-                    for rect_prob in global_rect_prob[label]:
-                        rect = rect_prob[0]
-                        y2 = rect[3]
-                        y1 = rect[1]
-                        x2 = rect[2]
-                        x1 = rect[0]
-                        roi = image[y1:y2, x1:x2]
-
-                        rois.append(
-                            sess.run(roi_preproc, feed_dict={roi_: roi}))
-                        rois_count += 1
-
-                # evaluate top values for every image in the batch of rois
-                rois_top_values, rois_top_indices = sess.run(
-                    [top_k[0], top_k[1]], feed_dict={"images_:0": rois})
-
-                roi_id = 0
-                # localization dictionary. ["label"] => [[rect, prob], ...]
-                localize = defaultdict(list)
-                # classification dictionary.
-                #[(rect)] => [top_values[0..num_cl], top_indices[0..num_cl]]
-                classify = defaultdict(list)
-                for label, relative_freq in sorted(
-                        rankmap.items(), key=operator.itemgetter(1),
-                        reverse=True):
-
-                    if roi_id == rois_count:
-                        break
-
-                    # loop over rect with the current label
-                    for rect_prob in global_rect_prob[label]:
-                        # remove background class from avaiable classes
-                        # need to use tolist because rois_top_indices[roi_id] is
-                        # a ndarray (Tensorflow always returns ndarray, even if
-                        # the data is 1-D)
-                        bg_pos = rois_top_indices[roi_id].tolist().index(
-                            BACKGROUND_CLASS)
-                        roi_top_probs = np.delete(rois_top_values[roi_id],
-                                                  bg_pos)
-                        roi_top_indices = np.delete(rois_top_indices[roi_id],
-                                                    bg_pos)
-
-                        roi_label = PASCAL_LABELS[roi_top_indices[0]]
-                        if label == roi_label:
-                            avg_prob = (roi_top_probs[0] + rect_prob[1]) / 2
-                            print(label, roi_top_probs[0], rect_prob[1],
-                                  relative_freq)
-                            if (avg_prob > MIN_PROB and roi_top_probs[0] >
-                                    MIN_PROB / 2) or relative_freq > avg_freq:
-                                localize[label].append(
-                                    [rect_prob[0], roi_top_probs[0]])
-
-                                classify[tuple(rect_prob[0])] = [
-                                    roi_top_indices, roi_top_probs
-                                ]
-                        roi_id += 1
-
-                # keep singles
-                localize = group_overlapping_with_same_class(
-                    localize, keep_singles=True)
+                # merge overlapping rectangles for each class.
+                # return a map of {"label": [rect, prob, relative_freq]}
+                localize = group_overlapping_with_same_class(glance)
+                print(localize)
 
                 end_time = time.time() - start
                 print("time: {}".format(end_time))
@@ -415,12 +394,19 @@ def main(args):
                 image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
                 for label, rect_prob_list in localize.items():
                     for rect_prob in rect_prob_list:
-                        draw_box(
-                            image,
-                            rect_prob[0],
-                            "{}({:.3})".format(label, rect_prob[1]),
-                            LABEL_COLORS[label],
-                            thickness=2)
+                        rect = rect_prob[0]
+                        prob = rect_prob[1]
+                        count = rect_prob[2]
+                        relative_freq = rect_prob[3]
+                        print(label, prob, count, rect, relative_freq)
+                        if count >= min_intersection and relative_freq > 0.1:
+                            draw_box(
+                                image,
+                                rect,
+                                "{}({:.3})".format(label, prob),
+                                LABEL_COLORS[label],
+                                thickness=2)
+
 
                 cv2.imshow("img", image)
                 cv2.waitKey(0)
