@@ -41,7 +41,7 @@ FC_NEURONS = 2048
 
 # train constants
 BATCH_SIZE = 64
-LEARNING_RATE = 1e-3
+LEARNING_RATE = 2e-4
 
 # output tensor name
 OUTPUT_TENSOR_NAME = "softmax_linear/out"
