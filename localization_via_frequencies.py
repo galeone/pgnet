@@ -190,7 +190,6 @@ def group_overlapping_with_same_class(map_of_regions):
     for label, rect_prob_list in map_of_regions.items():
         # extract rectangles from the array of pairs
         rects_only = np.array([value[0] for value in rect_prob_list])
-        print(rects_only.size)
 
         # group them
         rect_list, _ = cv2.groupRectangles(
@@ -212,10 +211,12 @@ def group_overlapping_with_same_class(map_of_regions):
 
                 if merged_count > 0:
                     avg_prob = sum_of_prob / merged_count
+                    print(merged_count, rects_only.size, merged_count / rects_only.size)
                     merged_rect_infos.append(
                         (merged_rect, avg_prob, merged_count, merged_count / rects_only.size))
 
             grouped_map[label] = merged_rect_infos
+            print(merged_rect_infos)
         """
         merged_rect_infos = merge_overlapping(rect_prob_list)
         grouped_map[label] = merged_rect_infos
@@ -291,7 +292,7 @@ def main(args):
 
             input_image, input_image_side, image = sess.run(
                 [eval_image, eval_image_side, original_image])
-            print(input_image_side)
+
             start = time.time()
             probability_map, top_values, top_indices = sess.run(
                 [logits, top_k[0], top_k[1]], feed_dict={images_: input_image})
@@ -316,7 +317,6 @@ def main(args):
                 analyzed_shape = np.array([image.shape[1], image.shape[0]]) * (
                     math.sqrt(pgnet.INPUT_SIDE *
                               pgnet.LAST_KERNEL_SIDE) / input_image_side)
-                print(analyzed_shape)
 
                 probability_coords = 0
                 glance = defaultdict(list)
@@ -358,7 +358,6 @@ def main(args):
 
                 # consider the positions of the remaining classes
                 looked_pos = sum(value['count'] for value in group.values())
-                print(looked_pos)
                 looked_pos_side = int(math.sqrt(looked_pos))
                 # una volta indivuduato di quanto si sovrappongono le zone analizzate
                 # contare quante sovrapposizioni sono possibili in una regione e triggherare quando
@@ -368,22 +367,20 @@ def main(args):
                 overlap_amount = math.floor(
                     (looked_pos_side * min_analyzed_region_side -
                      min_img_orig_side) / looked_pos_side) - 1
-                print(overlap_amount)
-                min_intersection = math.floor(overlap_amount / 2)
-                print(min_intersection)
+
+                min_intersection = overlap_amount
+                print('min intersection: ', min_intersection)
 
                 # Save the relative frequency for every class
                 # To trigger a match, at least a fraction of intersection should be present
                 for label in group:
                     group[label]["prob"] /= group[label]["count"]
-                    group[label]["freq"] = group[label]["count"] / looked_pos
-                    print('{}, {}, {} => RF {}'.format(label, group[label][
-                        "prob"], group[label]["count"], group[label]["freq"]))
+                    group[label]["rf"] = group[label]["count"] / looked_pos
+                    print(label, group[label])
 
                 # merge overlapping rectangles for each class.
                 # return a map of {"label": [rect, prob, relative_freq]}
                 localize = group_overlapping_with_same_class(glance)
-                print(localize)
 
                 end_time = time.time() - start
                 print("time: {}".format(end_time))
@@ -398,8 +395,7 @@ def main(args):
                         prob = rect_prob[1]
                         count = rect_prob[2]
                         relative_freq = rect_prob[3]
-                        print(label, prob, count, rect, relative_freq)
-                        if count >= min_intersection and relative_freq > 0.1:
+                        if count >= min_intersection:
                             draw_box(
                                 image,
                                 rect,
