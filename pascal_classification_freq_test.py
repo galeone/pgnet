@@ -271,7 +271,7 @@ def main(args):
             args.test_ds + "/ImageSets/Main/test.txt")
 
         init_op = tf.group(tf.initialize_all_variables(),
-                   tf.initialize_local_variables())
+                           tf.initialize_local_variables())
 
         with tf.Session(config=tf.ConfigProto(
                 allow_soft_placement=True)) as sess:
