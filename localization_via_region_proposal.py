@@ -5,7 +5,7 @@
 #file, you can obtain one at http://mozilla.org/MPL/2.0/.
 #Exhibit B is not attached; this software is compatible with the
 #licenses expressed under Section 1.12 of the MPL v2.
-"""./heatmap_test.py --image-path <img path>"""
+"""./localization_via_region_proposal.py --image-path <img path>"""
 
 import argparse
 import os
@@ -29,8 +29,7 @@ PASCAL_LABELS = ["aeroplane", "bicycle", "bird", "boat", "bottle", "bus",
                  "train", "tvmonitor"]
 
 # detection constants
-MIN_PROB = 0.8
-RECT_SIMILARITY = 0.99
+RECT_SIMILARITY = 0.999
 
 # trained pgnet constants
 BACKGROUND_CLASS = 20
@@ -208,20 +207,16 @@ def main(args):
                 tf.constant(args.image_path), 3,
                 args.image_path.split('.')[-1]),
             dtype=tf.uint8)
+
         original_image_dim = tf.shape(original_image)
-        original_image_min_dim = tf.minimum(original_image_dim[0],
-                                            original_image_dim[1])
+
+        k = 2
         eval_image_side = tf.cond(
-                tf.less_equal(original_image_min_dim,
-                              tf.constant(pgnet.INPUT_SIDE)),
-                lambda: tf.constant(pgnet.INPUT_SIDE),
-                lambda: tf.constant(pgnet.INPUT_SIDE) + tf.constant(
-                    pgnet.DOWNSAMPLING_FACTOR * pgnet.LAST_CONV_INPUT_STRIDE) * tf.cast(
-                        tf.floor(
-                            tf.maximum(original_image_dim[0],
-                                original_image_dim[1]) / tf.constant(pgnet.INPUT_SIDE)
-                            ), dtype=tf.int32)
-                )
+            tf.less_equal(
+                tf.minimum(original_image_dim[0], original_image_dim[1]),
+                tf.constant(pgnet.INPUT_SIDE)),
+            lambda: tf.constant(pgnet.INPUT_SIDE),
+            lambda: tf.constant(pgnet.INPUT_SIDE + pgnet.DOWNSAMPLING_FACTOR * pgnet.LAST_CONV_INPUT_STRIDE * k))
 
         eval_image = tf.expand_dims(
             image_processing.zm_mp(
@@ -276,8 +271,7 @@ def main(args):
                         ds_x = pmap_x * pgnet.LAST_CONV_OUTPUT_STRIDE
 
                         if top_indices[probability_coords][
-                                0] != BACKGROUND_CLASS and top_values[
-                                    probability_coords][0] > MIN_PROB:
+                                0] != BACKGROUND_CLASS:
 
                             # create coordinates of rect in the downsampled image
                             # convert to numpy array in order to use broadcast ops
@@ -308,28 +302,10 @@ def main(args):
                 looked_pos = sum(value['count'] for value in group.values())
 
                 # Save the relative frequency for every class
-                rankmap = defaultdict(float)
-                freq_sum = 0.0
-                freq_count = 0
                 for label in group:
-                    relative_freq = group[label]["count"] / looked_pos
-                    rankmap[label] = relative_freq
-                    print('{}, {}, {} => RF {}'.format(label, group[label][
-                        "prob"], group[label]["count"], relative_freq))
-                    freq_sum += relative_freq
-                    freq_count += 1
-
-                avg_freq = freq_sum / freq_count
-
-                # keep rectangles from local glance, only of the remaining labels
-                """
-                glance = {label: value
-                          for label, value in glance.items()
-                          if label in classes and rankmap[label] >= 0.03}
-
-                # remaining classes
-                print(glance.keys())
-                """
+                    group[label]["prob"] /= group[label]["count"]
+                    group[label]["rf"] = group[label]["count"] / looked_pos
+                    print(label, group[label])
 
                 # merge overlapping rectangles for each class
                 global_rect_prob = group_overlapping_with_same_class(
@@ -338,14 +314,12 @@ def main(args):
                 # loop preserving order, because rois are evaluated in order
                 rois = []
                 rois_count = 0
-                for label, relative_freq in sorted(
-                        rankmap.items(), key=operator.itemgetter(1),
-                        reverse=True):
+                for label, rect_prob_list in sorted(global_rect_prob.items()):
                     # extract rectangles for each image and classify it.
                     # if the classification gives the same global label as top-1(2,3?) draw it
                     # else skip it.
 
-                    for rect_prob in global_rect_prob[label]:
+                    for rect_prob in rect_prob_list:
                         rect = rect_prob[0]
                         y2 = rect[3]
                         y1 = rect[1]
@@ -367,15 +341,11 @@ def main(args):
                 # classification dictionary.
                 #[(rect)] => [top_values[0..num_cl], top_indices[0..num_cl]]
                 classify = defaultdict(list)
-                for label, relative_freq in sorted(
-                        rankmap.items(), key=operator.itemgetter(1),
-                        reverse=True):
 
-                    if roi_id == rois_count:
-                        break
+                for label, rect_prob_list in sorted(global_rect_prob.items()):
 
                     # loop over rect with the current label
-                    for rect_prob in global_rect_prob[label]:
+                    for rect_prob in rect_prob_list:
                         # remove background class from avaiable classes
                         # need to use tolist because rois_top_indices[roi_id] is
                         # a ndarray (Tensorflow always returns ndarray, even if
@@ -389,22 +359,12 @@ def main(args):
 
                         roi_label = PASCAL_LABELS[roi_top_indices[0]]
                         if label == roi_label:
-                            avg_prob = (roi_top_probs[0] + rect_prob[1]) / 2
-                            print(label, roi_top_probs[0], rect_prob[1],
-                                  relative_freq)
-                            if (avg_prob > MIN_PROB and roi_top_probs[0] >
-                                    MIN_PROB / 2) or relative_freq > avg_freq:
-                                localize[label].append(
-                                    [rect_prob[0], roi_top_probs[0]])
+                            localize[label].append(
+                                [rect_prob[0], roi_top_probs[0]])
 
-                                classify[tuple(rect_prob[0])] = [
-                                    roi_top_indices, roi_top_probs
-                                ]
-                        roi_id += 1
-
-                # keep singles
-                localize = group_overlapping_with_same_class(
-                    localize, keep_singles=True)
+                            classify[tuple(rect_prob[0])] = [
+                                roi_top_indices, roi_top_probs
+                            ]
 
                 end_time = time.time() - start
                 print("time: {}".format(end_time))
