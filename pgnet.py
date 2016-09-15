@@ -41,7 +41,7 @@ FC_NEURONS = 2048
 
 # train constants
 BATCH_SIZE = 64
-LEARNING_RATE = 2e-4
+LEARNING_RATE = 1e-3
 
 # output tensor name
 OUTPUT_TENSOR_NAME = "softmax_linear/out"
@@ -79,9 +79,9 @@ def batch_norm(layer_output, is_training_):
 
 
 # conv_layer do not normalize its output
-def conv_layer(input_x, kernel_shape, padding, strides):
+def conv_layer(input_x, kernel_shape, padding, strides, name="out"):
     """Returns the result of:
-    ReLU(conv2d(input_x, kernels, padding=padding, strides) + bias).
+    conv2d(input_x, kernels, padding=padding, strides) + bias
     Creates kernels (name=kernel), bias (name=bias) and relates summaries.
 
     Args:
@@ -91,6 +91,7 @@ def conv_layer(input_x, kernel_shape, padding, strides):
         name: the op name
         padding; "VALID" | "SAME"
         stride: 4-d tensor, like: (1, 2, 2, 1)
+        name= name of the output
     """
 
     num_kernels = kernel_shape[3]
@@ -98,12 +99,10 @@ def conv_layer(input_x, kernel_shape, padding, strides):
     kernels = utils.kernels(kernel_shape, "kernels")
     bias = utils.bias([num_kernels], "bias")
 
-    out = tf.nn.relu(
-        tf.add(tf.nn.conv2d(
-            input_x, kernels, strides=strides, padding=padding),
-               bias),
-        name="out")
-    return out
+    return tf.add(tf.nn.conv2d(
+        input_x, kernels, strides=strides, padding=padding),
+                  bias,
+                  name=name)
 
 
 def prepad(input_x, kernel_side):
@@ -135,7 +134,7 @@ def eq_conv_layer(input_x, kernel_side, num_kernels, strides, is_training_):
         strides: 4d tensor like: (1, stride, stride, 1)
         is_training_: boolean placeholder to enable/disable train changes
     Returns:
-        batch_norm(conv_layer(input_padded))
+        batch_norm(tf.nn.relu(conv_layer(input_padded)))
     """
 
     with tf.variable_scope("eq_conv_layer"):
@@ -145,7 +144,8 @@ def eq_conv_layer(input_x, kernel_side, num_kernels, strides, is_training_):
         input_padded = prepad(input_x, kernel_side)
         print(input_padded)
         out = batch_norm(
-            conv_layer(input_padded, kernel_shape, "VALID", strides),
+            tf.nn.relu(
+                conv_layer(input_padded, kernel_shape, "VALID", strides)),
             is_training_)
 
         return out
@@ -357,22 +357,25 @@ def get(num_classes, images_, keep_prob_, is_training_, train_phase=False):
 
         # 1x1xDepth convolutions, FC equivalent
         with tf.variable_scope("fc1"):
-            fc1 = conv_layer(conv7, (1, 1, num_kernels, num_kernels), "VALID",
-                             (1, 1, 1, 1))
+            fc1 = tf.nn.relu(
+                conv_layer(conv7, (1, 1, num_kernels, num_kernels), "VALID", (
+                    1, 1, 1, 1)))
             if train_phase is True:
                 fc1 = tf.nn.dropout(fc1, keep_prob_, name="dropout")
             print(fc1)
             # output: 1x1xNUM_NEURONS
 
         with tf.variable_scope("fc2"):
-            fc2 = conv_layer(fc1, (1, 1, num_kernels, num_kernels), "VALID",
-                             (1, 1, 1, 1))
+            fc2 = tf.nn.relu(
+                conv_layer(fc1, (1, 1, num_kernels, num_kernels), "VALID", (
+                    1, 1, 1, 1)))
             if train_phase is True:
                 fc2 = tf.nn.dropout(fc2, keep_prob_, name="dropout")
             print(fc2)
             # output: 1x1xNUM_NEURONS
 
     with tf.variable_scope("softmax_linear"):
+        # ___linear___ no non-linearity!
         out = conv_layer(fc2, (1, 1, num_kernels, num_classes), "VALID",
                          (1, 1, 1, 1))
     # output: (BATCH_SIZE)x1x1xnum_classes if the input has been properly scaled
