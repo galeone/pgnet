@@ -5,11 +5,11 @@
 #file, you can obtain one at http://mozilla.org/MPL/2.0/.
 #Exhibit B is not attached; this software is compatible with the
 #licenses expressed under Section 1.12 of the MPL v2.
-"""./build_trainval.py PASCAL_2012/VOCdevkit/VOC2012 cropped_dataset
-Extracts the 20 categories from the PASCAL dataset (argv[1]).
-Crop every image to annotated bounding boxes as described in argv[1]/Annotations/
-Creates the cropped_dataset/ts.csv file. Splits the ts.csv file in train.csv & validation.csv.
-Outputs the average input width and height.
+"""./pascal_trainval.py PASCAL_2012/VOCdevkit/VOC2012 cropped_dataset
+
+Extracts the annotated bouding boxes from the PASCAL dataset (argv[1]).
+Creates the cropped_dataset/ts.csv file and splits it in
+train.csv & validation.csv that place in the current folder.
 """
 
 import glob
@@ -99,7 +99,7 @@ def main(argv):
     len_argv = len(argv)
     if len_argv not in (2, 3):
         print(
-            "usage: pascal_cropper.py /path/of/VOC<year> /path/of/cropped_dataset/",
+            "usage: pascal_trainval.py /path/of/VOC<year> /path/of/cropped_dataset/",
             file=sys.stderr)
         return 1
 

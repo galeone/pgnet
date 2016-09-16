@@ -4,7 +4,7 @@
 
 pgnet uses the PASCAL VOC 2012 train & test set, for train and test respectively.
 
-`build_trainval.py` generates a new dataset of cropped detected images and a csv file `ts.csv`.
+`pascal_trainval.py` generates a new dataset of cropped detected images and a csv file `ts.csv`.
 
 The cropper can handle every dataset that follows the PASCAL VOC 2012 structure.
 
@@ -21,9 +21,10 @@ wget http://pjreddie.com/media/files/VOC2012test.tar
 tar xf VOCtrainval_11-May-2012.tar
 tar xf VOCdevkit_18-May-2011.tar
 cd -
-python build_trainval.py ~/data/PASCAL_2012/VOCdevkit/VOC2012 ~/data/PASCAL_2012_cropped/
+python train/build/pascal_trainval.py ~/data/PASCAL_2012/VOCdevkit/VOC2012 ~/data/PASCAL_2012_cropped/
 # It could take a long time if you hdd is slow.
-# At the end ~/data/PASCAL_2012_cropped/ contains the cropped images and `train.csv` and `validations.csv`
+# At the end ~/data/PASCAL_2012_cropped/ contains the cropped images and `ts.cs`
+# `train.csv` and `validations.csv` are created in the current folder.
 cd ~/data/PASCAL_2012/test
 mv ../VOC2012test.tar .
 tar xf VOC2012test.tar
