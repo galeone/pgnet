@@ -25,6 +25,9 @@ CLASSES = ["aeroplane", "bicycle", "bird", "boat", "bottle", "bus", "car",
            "cat", "chair", "cow", "diningtable", "dog", "horse", "motorbike",
            "person", "pottedplant", "sheep", "sofa", "train", "tvmonitor"]
 
+# Add the definition of an (unused) background class ID
+BACKGROUND_CLASS_ID = len(CLASSES)  # classes ids are 0 based
+
 FIELD_NAMES = ["file", "width", "height", "label"]
 
 VALIDATION_DATASET_PERCENTACE = 1 / 90

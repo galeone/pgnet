@@ -5,7 +5,7 @@
 #file, you can obtain one at http://mozilla.org/MPL/2.0/.
 #Exhibit B is not attached; this software is compatible with the
 #licenses expressed under Section 1.12 of the MPL v2.
-"""./localization_via_region_proposal.py --image-path <img path>"""
+"""test_localization_single_rp.py --image-path <img path>"""
 
 import argparse
 import os
@@ -18,147 +18,13 @@ import tensorflow as tf
 import cv2
 import numpy as np
 import train
-import pgnet
-import pascal_input
-import image_processing
+import utils
+from pgnet import model
+from inputs import pascal
+from inputs import image_processing
 
-# pascal sorted labels
-PASCAL_LABELS = ["aeroplane", "bicycle", "bird", "boat", "bottle", "bus",
-                 "car", "cat", "chair", "cow", "diningtable", "dog", "horse",
-                 "motorbike", "person", "pottedplant", "sheep", "sofa",
-                 "train", "tvmonitor"]
-
-# detection constants
+# detection parameters
 RECT_SIMILARITY = 0.999
-
-# trained pgnet constants
-BACKGROUND_CLASS = 20
-
-
-def rnd_color():
-    """ Generate random colors in RGB format"""
-    rnd = lambda: np.random.randint(0, 255)
-    return (rnd(), rnd(), rnd())
-
-
-LABEL_COLORS = {label: rnd_color() for label in PASCAL_LABELS}
-
-
-def legend():
-    image = np.zeros((400, 200, 3), dtype=np.uint8)
-    y = 20
-    for label in PASCAL_LABELS:
-        color = LABEL_COLORS[label]
-        cv2.putText(image, label, (5, y), 0, 1, color, thickness=2)
-        y += 20
-
-    cv2.imshow("legend", image)
-
-
-def upsample_and_shift(ds_coords, downsamplig_factor, shift_amount,
-                       scaling_factors):
-    """Upsample ds_coords by downsampling factor, then
-    shift the upsampled coordinates by shift amount, then
-    resize the upsampled coordinates to the input image size, using the scaling factors.
-
-    Args:
-        ds_coords: downsampled coordinates [x0,y0, x1, y1]
-        downsampling_factor: the net downsample factor, used to upsample the coordinates
-        shift_amount: the quantity [2 coords] to add at each upsampled coordinate
-        scaling_factors: [along_x, along_y] float numbers. Ration between net input
-            and original image
-    Return:
-        the result of the previous described operations as a tuple: (x0, y0, x1, y1)
-    """
-    scaling_factor_x = scaling_factors[0]
-    scaling_factor_y = scaling_factors[1]
-    # create coordinates of rect in the downsampled image
-    # convert to numpy array in order to use broadcast ops
-    coord = np.array(ds_coords)
-
-    # upsample coordinates to find the coordinates of the cell
-    box = coord * downsamplig_factor
-
-    # shift coordinates to the position of the current cell
-    # in the resized input image
-    box += [shift_amount[0], shift_amount[1], shift_amount[0], shift_amount[1]]
-
-    # scale coordinates to the input image
-    input_box = np.ceil(box * [scaling_factor_x, scaling_factor_y,
-                               scaling_factor_x, scaling_factor_y]).astype(int)
-    return tuple(input_box)  # (x0, y0, x1, y1)
-
-
-def draw_box(image, rect, label, color, thickness=1):
-    """ Draw rect on image, writing label into rect and colors border and text with color"""
-    cv2.rectangle(
-        image, (rect[0], rect[1]), (rect[2], rect[3]),
-        color,
-        thickness=thickness)
-    cv2.putText(
-        image,
-        label, (rect[0] + 10, rect[1] + 10),
-        0,
-        1,
-        color,
-        thickness=thickness)
-
-
-def intersect(rect_a, rect_b):
-    """Returns true if rect_a intersects rect_b"""
-    x = max(rect_a[0], rect_b[0])
-    y = max(rect_a[1], rect_b[1])
-    w = min(rect_a[0] + rect_a[2], rect_b[0] + rect_b[2]) - x
-    h = min(rect_a[1] + rect_a[3], rect_b[1] + rect_b[3]) - y
-    if w < 0 or h < 0:
-        return False
-    return True
-
-
-def norm(p0):
-    """Returns sqrt(p0[0]**2 + p0[1]**2)"""
-    return math.sqrt(p0[0]**2 + p0[1]**2)
-
-
-def l2(p0, p1):
-    """Returns norm((p0[0] - p1[0], p0[1] - p1[1]))"""
-    return norm((p0[0] - p1[0], p0[1] - p1[1]))
-
-
-def group_overlapping_with_same_class(map_of_regions, keep_singles=False):
-    """merge overlapping rectangles with the same class
-    Merge if there's overlapping between at leat 2 regions if keep_singles=False
-    otherwise it keeps single rectangles.
-    Args:
-        map_of_regions:  {"label": [[rect1, p1], [rect2, p2], ..], "label2"...}
-    """
-    grouped_map = defaultdict(list)
-    for label, rect_prob_list in map_of_regions.items():
-        # extract rectangles from the array of pairs
-        rects_only = np.array([value[0] for value in rect_prob_list])
-        # group them
-        factor = 2 if keep_singles else 1
-        rect_list, _ = cv2.groupRectangles(
-            rects_only.tolist() * factor, 1, eps=RECT_SIMILARITY)
-
-        # calculate probability of the grouped rectangles as the mean prob
-        merged_rect_prob_list = []
-        for merged_rect in rect_list:
-            sum_of_prob = 0.0
-
-            merged_count = 0
-            for idx, original_rect in enumerate(rects_only):
-                if intersect(original_rect, merged_rect):
-                    original_rect_prob = rect_prob_list[idx][1]
-                    sum_of_prob += original_rect_prob
-                    merged_count += 1
-
-            avg_prob = sum_of_prob / merged_count
-            merged_rect_prob_list.append((merged_rect, avg_prob))
-
-        if len(rect_list) > 0:
-            grouped_map[label] = merged_rect_prob_list
-    return grouped_map
 
 
 def main(args):
@@ -168,38 +34,22 @@ def main(args):
         print("{} does not exists".format(args.image_path))
         return 1
 
-    current_dir = os.path.abspath(os.getcwd())
-
-    # Number of classes in the dataset plus 1.
-    # Labelp pascal_input. NUM_CLASSES + 1 is reserved for
-    # the background class.
-    num_classes = pascal_input.NUM_CLASSES + 1
-
     # export model.pb from session dir. Skip if model.pb already exists
-    pgnet.export_model(num_classes, current_dir + "/session", "model-0",
-                       "model.pb")
+    model.export(train.NUM_CLASSES, train.SESSION_DIR, "model-0",
+                 train.MODEL_PATH)
 
-    with tf.Graph().as_default() as graph, tf.device(args.device):
-        const_graph_def = tf.GraphDef()
-        with open(train.TRAINED_MODEL_FILENAME, 'rb') as saved_graph:
-            const_graph_def.ParseFromString(saved_graph.read())
-            # replace current graph with the saved graph def (and content)
-            # name="" is importat because otherwise (with name=None)
-            # the graph definitions will be prefixed with import.
-            tf.import_graph_def(const_graph_def, name="")
-
-        # now the current graph contains the trained model
-
+    graph = model.load(train.MODEL_PATH, args.device)
+    with graph.as_default():
         # (?, n, n, NUM_CLASSES) tensor
-        logits = graph.get_tensor_by_name(pgnet.OUTPUT_TENSOR_NAME + ":0")
+        logits = graph.get_tensor_by_name(model.OUTPUT_TENSOR_NAME + ":0")
         # each cell in coords (batch_position, i, j) -> is a probability vector
         per_roi_probabilities = tf.nn.softmax(
-            tf.reshape(logits, [-1, num_classes]))
-        # [tested positions, num_classes]
+            tf.reshape(logits, [-1, train.NUM_CLASSES]))
+        # [tested positions, train.NUM_CLASSES]
 
         # array[0]=values, [1]=indices
         # get every probabiliy, because we can use localization to do classification
-        top_k = tf.nn.top_k(per_roi_probabilities, k=num_classes)
+        top_k = tf.nn.top_k(per_roi_probabilities, k=train.NUM_CLASSES)
         # each with shape [tested_positions, k]
 
         original_image = tf.image.convert_image_dtype(
@@ -214,9 +64,9 @@ def main(args):
         eval_image_side = tf.cond(
             tf.less_equal(
                 tf.minimum(original_image_dim[0], original_image_dim[1]),
-                tf.constant(pgnet.INPUT_SIDE)),
-            lambda: tf.constant(pgnet.INPUT_SIDE),
-            lambda: tf.constant(pgnet.INPUT_SIDE + pgnet.DOWNSAMPLING_FACTOR * pgnet.LAST_CONV_INPUT_STRIDE * k))
+                tf.constant(model.INPUT_SIDE)),
+            lambda: tf.constant(model.INPUT_SIDE),
+            lambda: tf.constant(model.INPUT_SIDE + model.DOWNSAMPLING_FACTOR * model.LAST_CONV_INPUT_STRIDE * k))
 
         eval_image = tf.expand_dims(
             image_processing.zm_mp(
@@ -229,7 +79,7 @@ def main(args):
         roi_preproc = image_processing.zm_mp(
             image_processing.resize_bl(
                 tf.image.convert_image_dtype(roi_, tf.float32),
-                pgnet.INPUT_SIDE))
+                model.INPUT_SIDE))
 
         with tf.Session(config=tf.ConfigProto(
                 allow_soft_placement=True)) as sess:
@@ -266,25 +116,25 @@ def main(args):
                 group = defaultdict(lambda: defaultdict(float))
                 for pmap_y in range(probability_map.shape[1]):
                     # calculate position in the downsampled image ds
-                    ds_y = pmap_y * pgnet.LAST_CONV_OUTPUT_STRIDE
+                    ds_y = pmap_y * model.LAST_CONV_OUTPUT_STRIDE
                     for pmap_x in range(probability_map.shape[2]):
-                        ds_x = pmap_x * pgnet.LAST_CONV_OUTPUT_STRIDE
+                        ds_x = pmap_x * model.LAST_CONV_OUTPUT_STRIDE
 
                         if top_indices[probability_coords][
-                                0] != BACKGROUND_CLASS:
+                                0] != pascal.BACKGROUND_CLASS_ID:
 
                             # create coordinates of rect in the downsampled image
                             # convert to numpy array in order to use broadcast ops
-                            coord = [ds_x, ds_y, ds_x + pgnet.LAST_KERNEL_SIDE,
-                                     ds_y + pgnet.LAST_KERNEL_SIDE]
+                            coord = [ds_x, ds_y, ds_x + model.LAST_KERNEL_SIDE,
+                                     ds_y + model.LAST_KERNEL_SIDE]
                             # if something is found, append rectagle to the
                             # map of rectalges per class
-                            rect = upsample_and_shift(
-                                coord, pgnet.DOWNSAMPLING_FACTOR, [0, 0],
+                            rect = utils.upsample_and_shift(
+                                coord, model.DOWNSAMPLING_FACTOR, [0, 0],
                                 full_image_scaling_factors)
 
                             prob = top_values[probability_coords][0]
-                            label = PASCAL_LABELS[top_indices[
+                            label = pascal.CLASSES[top_indices[
                                 probability_coords][0]]
 
                             rect_prob = [rect, prob]
@@ -308,8 +158,8 @@ def main(args):
                     print(label, group[label])
 
                 # merge overlapping rectangles for each class
-                global_rect_prob = group_overlapping_with_same_class(
-                    glance, keep_singles=True)
+                global_rect_prob = utils.group_overlapping_regions(
+                    glance, eps=RECT_SIMILARITY)
 
                 # loop preserving order, because rois are evaluated in order
                 rois = []
@@ -351,13 +201,13 @@ def main(args):
                         # a ndarray (Tensorflow always returns ndarray, even if
                         # the data is 1-D)
                         bg_pos = rois_top_indices[roi_id].tolist().index(
-                            BACKGROUND_CLASS)
+                            pascal.BACKGROUND_CLASS_ID)
                         roi_top_probs = np.delete(rois_top_values[roi_id],
                                                   bg_pos)
                         roi_top_indices = np.delete(rois_top_indices[roi_id],
                                                     bg_pos)
 
-                        roi_label = PASCAL_LABELS[roi_top_indices[0]]
+                        roi_label = pascal.CLASSES[roi_top_indices[0]]
                         if label == roi_label:
                             localize[label].append(
                                 [rect_prob[0], roi_top_probs[0]])

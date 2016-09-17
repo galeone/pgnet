@@ -16,9 +16,8 @@ import sys
 import tensorflow as tf
 import numpy as np
 import train
-import pgnet
-import pascifar_input
-import pascal_input
+from pgnet import model
+from inputs import pascifar
 
 BATCH_SIZE = 100
 
@@ -31,29 +30,12 @@ def main(args):
         return 1
 
     # export model.pb from session dir. Skip if model.pb already exists
-    current_dir = os.path.abspath(os.getcwd())
+    model.export(train.NUM_CLASSES, train.SESSION_DIR, "model-0",
+                 train.MODEL_PATH)
 
-    # Number of classes in the dataset plus 1.
-    # Labelp pascal_input. NUM_CLASSES + 1 is reserved for
-    # an (unused) background class.
-    num_classes = pascal_input.NUM_CLASSES + 1
-
-    pgnet.export_model(num_classes, current_dir + "/session", "model-0",
-                       "model.pb")
-
-    graph = tf.Graph()
-    with graph.as_default(), tf.device(args.device):
-        const_graph_def = tf.GraphDef()
-        with open(train.TRAINED_MODEL_FILENAME, 'rb') as saved_graph:
-            const_graph_def.ParseFromString(saved_graph.read())
-            # replace current graph with the saved graph def (and content)
-            # name="" is importat because otherwise (with name=None)
-            # the graph definitions will be prefixed with import.
-            tf.import_graph_def(const_graph_def, name="")
-
-        # now the current graph contains the trained model
-
-        logits = graph.get_tensor_by_name(pgnet.OUTPUT_TENSOR_NAME + ":0")
+    graph = model.load(train.MODEL_PATH, args.device)
+    with graph.as_default():
+        logits = graph.get_tensor_by_name(model.OUTPUT_TENSOR_NAME + ":0")
         logits = tf.squeeze(logits, [1, 2])
 
         # sparse labels, pgnet output -> 20 possible values
@@ -64,9 +46,9 @@ def main(args):
         top_1_op = tf.nn.in_top_k(logits, labels_, 1)
         top_5_op = tf.nn.in_top_k(logits, labels_, 5)
 
-        image_queue, label_queue = pascifar_input.test(
-            args.test_ds, BATCH_SIZE, pgnet.INPUT_SIDE,
-            args.test_ds + "/ts.csv")
+        image_queue, label_queue = pascifar.test(args.test_ds, BATCH_SIZE,
+                                                 model.INPUT_SIDE,
+                                                 args.test_ds + "/ts.csv")
 
         # initialize all variables
         init_op = tf.group(tf.initialize_all_variables(),

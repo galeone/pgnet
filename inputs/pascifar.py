@@ -9,7 +9,7 @@
 
 import os
 import tensorflow as tf
-import image_processing
+from . import image_processing
 
 # The depth of the example
 INPUT_DEPTH = 3

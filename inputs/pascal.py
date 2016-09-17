@@ -9,12 +9,15 @@
 
 import os
 import tensorflow as tf
-import image_processing
+from . import image_processing
+from . import pascal_trainval
 
 # Global constants describing the cropped pascal data set.
 NUM_CLASSES = 20
 NUM_EXAMPLES_PER_EPOCH_FOR_EVAL = 293
 NUM_EXAMPLES_PER_EPOCH_FOR_TRAIN = 27157
+CLASSES = pascal_trainval.CLASSES
+BACKGROUND_CLASS_ID = pascal_trainval.BACKGROUND_CLASS_ID
 
 # sum = 27450 = PASCAL trainval size
 

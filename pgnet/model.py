@@ -19,8 +19,8 @@ import math
 import os
 import sys
 import tensorflow as tf
-import freeze_graph
-import utils
+from . import freeze_graph
+from . import utils
 
 # network constants
 INPUT_SIDE = 200
@@ -445,7 +445,7 @@ def variables_to_save(addlist):
         REQUIRED_NON_TRAINABLES) + addlist
 
 
-def define_model(num_classes, train_phase):
+def define(num_classes, train_phase):
     """ define the model with its inputs.
     Use this function to define the model in training and when exporting the model
     in the protobuf format.
@@ -478,7 +478,7 @@ def define_model(num_classes, train_phase):
     return is_training_, keep_prob_, images_, logits
 
 
-def export_model(num_classes, session_dir, input_checkpoint, model_filename):
+def export(num_classes, session_dir, input_checkpoint, model_abspath):
     """Export model defines the model in a new empty graph.
     Creates a saver for the model.
     Restores the session if exists, otherwise prints an error and returns -1
@@ -491,15 +491,15 @@ def export_model(num_classes, session_dir, input_checkpoint, model_filename):
         session_dir: absolute path of the checkpoint folder
         input_checkpoint: the name of the latest checkpoint (the desidered checkpoint to restore).
                           will look into session_dir/input_checkpoint (eg: session_dir/model-0)
-        model_filename: the name of the freezed model
+        model_abspath: absolute path of the saved model
     """
     # if the trained model does not exist
-    if not os.path.exists(model_filename):
+    if not os.path.exists(model_abspath):
         # create an empty graph into the CPU because GPU can run OOM
         graph = tf.Graph()
         with graph.as_default(), tf.device('/cpu:0'):
             # inject in the default graph the model structure
-            define_model(num_classes, train_phase=False)
+            define(num_classes, train_phase=False)
             # create a saver, to restore the graph in the session_dir
             saver = tf.train.Saver(tf.all_variables())
 
@@ -524,8 +524,22 @@ def export_model(num_classes, session_dir, input_checkpoint, model_filename):
                 freeze_graph.freeze_graph(
                     session_dir + "/skeleton.pbtxt", "", False,
                     session_dir + "/" + input_checkpoint, OUTPUT_TENSOR_NAME,
-                    "save/restore_all", "save/Const:0", model_filename, True,
+                    "save/restore_all", "save/Const:0", model_abspath, True,
                     "")
     else:
-        print("{} already exists. Skipping export_model".format(
-            model_filename))
+        print("{} already exists. Skipping export".format(model_abspath))
+
+
+def load(model_path, device):
+    """ Read model from model_path, place it into device. Returns the graph"""
+    graph = tf.Graph()
+    with graph.as_default(), tf.device(device):
+        const_graph_def = tf.GraphDef()
+        with open(model_path, 'rb') as saved_graph:
+            const_graph_def.ParseFromString(saved_graph.read())
+            # replace current graph with the saved graph def (and content)
+            # name="" is importat because otherwise (with name=None)
+            # the graph definitions will be prefixed with import.
+            tf.import_graph_def(const_graph_def, name="")
+
+    return graph

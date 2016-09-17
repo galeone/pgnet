@@ -15,20 +15,25 @@ import time
 from datetime import datetime
 import numpy as np
 import tensorflow as tf
-import pgnet
-import pascal_input
+from pgnet import model
+from inputs import pascal
 
 # graph parameteres
-SESSION_DIR = "session"
-SUMMARY_DIR = "summary"
-TRAINED_MODEL_FILENAME = "model.pb"
+CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
+SESSION_DIR = CURRENT_DIR + "/session"
+SUMMARY_DIR = CURRENT_DIR + "/summary"
+MODEL_PATH = CURRENT_DIR + "/model.pb"
 
 # cropped pascal parameters
 CSV_PATH = "~/data/PASCAL_2012_cropped"
 
+# Number of classes in the dataset plus 1.
+# NUM_CLASSES + 1 is reserved for an (unused) background class.
+NUM_CLASSES = pascal.NUM_CLASSES + 1
+
 # train & validation parameters
-STEP_FOR_EPOCH = math.ceil(pascal_input.NUM_EXAMPLES_PER_EPOCH_FOR_TRAIN /
-                           pgnet.BATCH_SIZE)
+STEP_FOR_EPOCH = math.ceil(pascal.NUM_EXAMPLES_PER_EPOCH_FOR_TRAIN /
+                           model.BATCH_SIZE)
 DISPLAY_STEP = math.ceil(STEP_FOR_EPOCH / 25)
 MEASUREMENT_STEP = DISPLAY_STEP
 MAX_ITERATIONS = STEP_FOR_EPOCH * 500
@@ -51,13 +56,8 @@ def train(args):
     if not os.path.exists(SUMMARY_DIR):
         os.makedirs(SUMMARY_DIR)
 
-    # Number of classes in the dataset plus 1.
-    # Labelp pascal_input. NUM_CLASSES + 1 is reserved for
-    # an (unused) background class.
-    num_classes = pascal_input.NUM_CLASSES + 1
-
     # if the trained model does not exist
-    if not os.path.exists(TRAINED_MODEL_FILENAME):
+    if not os.path.exists(MODEL_PATH):
         # train graph is the graph that contains the variable
         graph = tf.Graph()
 
@@ -67,12 +67,18 @@ def train(args):
 
             with tf.variable_scope("train_input"):
                 # get the train input
-                train_images_queue, train_labels_queue = pascal_input.train(
-                    CSV_PATH, pgnet.BATCH_SIZE, pgnet.INPUT_SIDE)
+                train_images_queue, train_labels_queue = pascal.train(
+                    CSV_PATH,
+                    model.BATCH_SIZE,
+                    model.INPUT_SIDE,
+                    csv_path=CURRENT_DIR)
 
             with tf.variable_scope("validation_input"):
-                validation_images_queue, validation_labels_queue = pascal_input.validation(
-                    CSV_PATH, pgnet.BATCH_SIZE, pgnet.INPUT_SIDE)
+                validation_images_queue, validation_labels_queue = pascal.validation(
+                    CSV_PATH,
+                    model.BATCH_SIZE,
+                    model.INPUT_SIDE,
+                    csv_path=CURRENT_DIR)
 
             with tf.device(args.device):  #GPU
                 # train global step
@@ -83,14 +89,14 @@ def train(args):
                 labels_ = tf.placeholder(
                     tf.int64, shape=[None], name="labels_")
 
-                is_training_, keep_prob_, images_, logits = pgnet.define_model(
-                    num_classes, train_phase=True)
+                is_training_, keep_prob_, images_, logits = model.define(
+                    NUM_CLASSES, train_phase=True)
 
                 # loss op
-                loss_op = pgnet.loss(logits, labels_)
+                loss_op = model.loss(logits, labels_)
 
                 # train op
-                train_op = pgnet.train(loss_op, global_step)
+                train_op = model.train(loss_op, global_step)
 
             # collect summaries for the previous defined variables
             summary_op = tf.merge_all_summaries()
@@ -100,7 +106,7 @@ def train(args):
                 reshaped_logits = tf.squeeze(logits, [1, 2])
 
                 # returns the label predicted
-                # reshaped_logits contains num_classes values in num_classes
+                # reshaped_logits contains NUM_CLASSES values in NUM_CLASSES
                 # positions. Each value is the probability for the position class.
                 # Returns the index (thus the label) with highest probability, for each line
                 # [BATCH_SIZE] vector
@@ -125,7 +131,7 @@ def train(args):
 
             # create a saver: to store current computation and restore the graph
             # useful when the train step has been interrupeted
-            variables_to_save = pgnet.variables_to_save([global_step])
+            variables_to_save = model.variables_to_save([global_step])
             saver = tf.train.Saver(variables_to_save)
 
             # tensor flow operator to initialize all the variables in a session
@@ -211,7 +217,7 @@ def train(args):
                         return 1
 
                     if step % DISPLAY_STEP == 0 and step > 0:
-                        examples_per_sec = pgnet.BATCH_SIZE / duration
+                        examples_per_sec = model.BATCH_SIZE / duration
                         sec_per_batch = float(duration)
                         print(
                             "{} step: {} loss: {} ({} examples/sec; {} batch/sec)".
@@ -298,12 +304,11 @@ def train(args):
                 coord.join(threads)
 
         # if here, the summary dir contains the trained model
-        current_dir = os.path.abspath(os.getcwd())
-        pgnet.export_model(num_classes, current_dir + "/session", "model-0",
-                           "model.pb")
+        # save the model in the project root (parent dir)
+        model.export(NUM_CLASSES, SESSION_DIR, "model-0", MODEL_PATH)
 
     else:
-        print("Trained model {} already exits".format(TRAINED_MODEL_FILENAME))
+        print("Trained model {} already exits".format(MODEL_PATH))
     return 0
 
 
