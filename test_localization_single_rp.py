@@ -11,9 +11,7 @@ import argparse
 import os
 import sys
 import time
-import math
 from collections import defaultdict
-import operator
 import tensorflow as tf
 import cv2
 import numpy as np
@@ -225,11 +223,11 @@ def main(args):
                 image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
                 for label, rect_prob_list in localize.items():
                     for rect_prob in rect_prob_list:
-                        draw_box(
+                        utils.draw_box(
                             image,
                             rect_prob[0],
                             "{}({:.3})".format(label, rect_prob[1]),
-                            LABEL_COLORS[label],
+                            utils.LABEL_COLORS[label],
                             thickness=2)
 
                 cv2.imshow("img", image)
