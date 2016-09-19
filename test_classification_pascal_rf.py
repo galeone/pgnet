@@ -52,7 +52,7 @@ def main(args):
         top_k = tf.nn.top_k(per_region_probabilities, k=train.NUM_CLASSES)
         # each with shape [tested_positions, k]
 
-        k = 2
+        k = 1
         input_side = model.INPUT_SIDE + model.DOWNSAMPLING_FACTOR * model.LAST_CONV_INPUT_STRIDE * k
 
         test_queue, test_filename_queue = pascal.test(
