@@ -24,6 +24,7 @@ import utils
 
 # detection parameters
 RECT_SIMILARITY = 0.9
+MIN_PROB = 0.5
 
 
 def main(args):
@@ -114,7 +115,8 @@ def main(args):
                         ds_x = pmap_x * model.LAST_CONV_OUTPUT_STRIDE
 
                         if top_indices[probability_coords][
-                                0] != pascal.BACKGROUND_CLASS_ID:
+                                0] != pascal.BACKGROUND_CLASS_ID and top_values[
+                                    probability_coords][0] > MIN_PROB:
 
                             # create coordinates of rect in the downsampled image
                             # convert to numpy array in order to use broadcast ops
@@ -143,21 +145,16 @@ def main(args):
 
                 # find out the minimum amount of intersection among regions
                 # in the original image, that can be used to trigger a match
-                looked_pos_side = probability_map.shape[
-                    1]  # or 2, is s square. 0 dim is batch
-                looked_pos = looked_pos_side**2
-                print(looked_pos_side, looked_pos)
-                min_img_orig_side = min([image.shape[1], image.shape[0]])
-                min_analyzed_region_side = min(analyzed_shape)
-                overlap_amount = math.floor(
-                    (looked_pos_side * min_analyzed_region_side -
-                     min_img_orig_side) / looked_pos_side) - 1
+                # or 2, is s square. 0 dim is batch
+                map_side = probability_map.shape[1]
+                map_area = map_side**2
 
-                min_intersection = math.floor(overlap_amount / 2)
+                min_intersection = map_side
                 print('min intersection: ', min_intersection)
 
                 # Save the relative frequency for every class
                 # To trigger a match, at least a fraction of intersection should be present
+                looked_pos = sum(value["count"] for value in group.values())
                 for label in group:
                     group[label]["prob"] /= group[label]["count"]
                     group[label]["rf"] = group[label]["count"] / looked_pos
@@ -169,7 +166,6 @@ def main(args):
                     glance, eps=RECT_SIMILARITY)
                 end_time = time.time() - start
                 print("time: {}".format(end_time))
-                print(localize)
 
                 # now I can convert RGB to BGR to display image with OpenCV
                 # I can't do that before, because ROIs gets extracted on RGB image
@@ -188,6 +184,7 @@ def main(args):
                                 "{}({:.3})".format(label, prob),
                                 utils.LABEL_COLORS[label],
                                 thickness=2)
+                            print(label, rect, prob, count, freq)
 
                 cv2.imshow("img", image)
                 cv2.waitKey(0)
