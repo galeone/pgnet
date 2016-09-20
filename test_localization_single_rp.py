@@ -18,11 +18,11 @@ import numpy as np
 import train
 import utils
 from pgnet import model
-from inputs import pascal
-from inputs import image_processing
+from inputs import pascal, image_processing
 
 # detection parameters
-RECT_SIMILARITY = 0.999
+RECT_SIMILARITY = 0.9
+MIN_PROB = 0.1
 
 
 def main(args):
@@ -40,14 +40,15 @@ def main(args):
     with graph.as_default():
         # (?, n, n, NUM_CLASSES) tensor
         logits = graph.get_tensor_by_name(model.OUTPUT_TENSOR_NAME + ":0")
+        images_ = graph.get_tensor_by_name(model.INPUT_TENSOR_NAME + ":0")
         # each cell in coords (batch_position, i, j) -> is a probability vector
-        per_roi_probabilities = tf.nn.softmax(
+        per_region_probabilities = tf.nn.softmax(
             tf.reshape(logits, [-1, train.NUM_CLASSES]))
         # [tested positions, train.NUM_CLASSES]
 
         # array[0]=values, [1]=indices
         # get every probabiliy, because we can use localization to do classification
-        top_k = tf.nn.top_k(per_roi_probabilities, k=train.NUM_CLASSES)
+        top_k = tf.nn.top_k(per_region_probabilities, k=train.NUM_CLASSES)
         # each with shape [tested_positions, k]
 
         original_image = tf.image.convert_image_dtype(
@@ -84,12 +85,11 @@ def main(args):
 
             input_image, input_image_side, image = sess.run(
                 [eval_image, eval_image_side, original_image])
-            print(input_image_side)
+
             start = time.time()
             probability_map, top_values, top_indices = sess.run(
-                [logits, top_k[0], top_k[1]],
-                feed_dict={
-                    "images_:0": input_image
+                [logits, top_k[0], top_k[1]], feed_dict={
+                    images_: input_image
                 })
 
             # let's think to the net as a big net, with the last layer (before the FC
@@ -119,8 +119,8 @@ def main(args):
                         ds_x = pmap_x * model.LAST_CONV_OUTPUT_STRIDE
 
                         if top_indices[probability_coords][
-                                0] != pascal.BACKGROUND_CLASS_ID:
-
+                                0] != pascal.BACKGROUND_CLASS_ID and top_values[
+                                    probability_coords][0] > MIN_PROB:
                             # create coordinates of rect in the downsampled image
                             # convert to numpy array in order to use broadcast ops
                             coord = [ds_x, ds_y, ds_x + model.LAST_KERNEL_SIDE,
@@ -145,15 +145,6 @@ def main(args):
 
                 classes = group.keys()
                 print('Found {} classes: {}'.format(len(classes), classes))
-
-                # consider the positions of the remaining classes
-                looked_pos = sum(value['count'] for value in group.values())
-
-                # Save the relative frequency for every class
-                for label in group:
-                    group[label]["prob"] /= group[label]["count"]
-                    group[label]["rf"] = group[label]["count"] / looked_pos
-                    print(label, group[label])
 
                 # merge overlapping rectangles for each class
                 global_rect_prob = utils.group_overlapping_regions(
@@ -181,7 +172,7 @@ def main(args):
 
                 # evaluate top values for every image in the batch of rois
                 rois_top_values, rois_top_indices = sess.run(
-                    [top_k[0], top_k[1]], feed_dict={"images_:0": rois})
+                    [top_k[0], top_k[1]], feed_dict={images_: rois})
 
                 roi_id = 0
                 # localization dictionary. ["label"] => [[rect, prob], ...]
@@ -191,7 +182,6 @@ def main(args):
                 classify = defaultdict(list)
 
                 for label, rect_prob_list in sorted(global_rect_prob.items()):
-
                     # loop over rect with the current label
                     for rect_prob in rect_prob_list:
                         # remove background class from avaiable classes
@@ -213,6 +203,7 @@ def main(args):
                             classify[tuple(rect_prob[0])] = [
                                 roi_top_indices, roi_top_probs
                             ]
+                        roi_id += 1
 
                 end_time = time.time() - start
                 print("time: {}".format(end_time))
