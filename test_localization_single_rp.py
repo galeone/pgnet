@@ -22,8 +22,6 @@ from inputs import pascal, image_processing
 
 # detection parameters
 RECT_SIMILARITY = 0.9
-MIN_PROB = 0.1
-
 
 def main(args):
     """ main """
@@ -119,8 +117,7 @@ def main(args):
                         ds_x = pmap_x * model.LAST_CONV_OUTPUT_STRIDE
 
                         if top_indices[probability_coords][
-                                0] != pascal.BACKGROUND_CLASS_ID and top_values[
-                                    probability_coords][0] > MIN_PROB:
+                                0] != pascal.BACKGROUND_CLASS_ID:
                             # create coordinates of rect in the downsampled image
                             # convert to numpy array in order to use broadcast ops
                             coord = [ds_x, ds_y, ds_x + model.LAST_KERNEL_SIDE,
