@@ -11,13 +11,12 @@ import argparse
 import os
 import sys
 from collections import defaultdict
-from PIL import Image
 import tensorflow as tf
 import numpy as np
 import train
 import utils
 from pgnet import model
-from inputs import pascal
+from inputs import pascal, image_processing
 
 
 def main(args):
@@ -94,11 +93,14 @@ def main(args):
                         # scaling factor between original image and resized image
                         decoded_filename = filename_batch[
                             batch_elem_id].decode("utf-8")
-                        image = Image.open(args.test_ds + "/JPEGImages/" +
-                                           decoded_filename + ".jpg")
+
+                        image = sess.run(
+                            image_processing.read_image_jpg(
+                                args.test_ds + "/JPEGImages/" +
+                                decoded_filename + ".jpg"))
                         full_image_scaling_factors = np.array(
-                            [image.size[0] / input_side,
-                             image.size[1] / input_side])
+                            [image.shape[1] / input_side,
+                             image.shape[0] / input_side])
 
                         probability_coords = 0
                         glance = defaultdict(list)
@@ -142,8 +144,8 @@ def main(args):
 
                         # find out the minimum amount of intersection among regions
                         # in the original image, that can be used to trigger a match
-                        looked_pos_side = probability_map.shape[
-                            1]  # or 2, is s square. 0 dim is batch
+                        # position 1or 2, is a square. 0 dim is batch
+                        looked_pos_side = probability_map.shape[1]
                         looked_pos = looked_pos_side**2
 
                         # Save the relative frequency for every class
