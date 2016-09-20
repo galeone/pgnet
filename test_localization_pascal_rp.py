@@ -214,6 +214,8 @@ def main(args):
                                             decoded_filename, confidence, left,
                                             top, right, bottom))
 
+                                roi_id += 1
+
                         processed += 1
 
                     if processed == 5:
