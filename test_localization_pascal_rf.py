@@ -61,14 +61,6 @@ def main(args):
             args.test_ds, 1, input_side,
             args.test_ds + "/ImageSets/Main/test.txt")
 
-        # roi placehoder
-        roi_ = tf.placeholder(tf.uint8)
-        # rop preprocessing, single image classification
-        roi_preproc = image_processing.zm_mp(
-            image_processing.resize_bl(
-                tf.image.convert_image_dtype(roi_, tf.float32),
-                model.INPUT_SIDE))
-
         init_op = tf.group(tf.initialize_all_variables(),
                            tf.initialize_local_variables())
 
@@ -153,57 +145,34 @@ def main(args):
                         print('Found {} classes: {}'.format(
                             len(classes), classes))
 
-                        # merge overlapping rectangles for each class
-                        global_rect_prob = utils.group_overlapping_regions(
+                        # find out the minimum amount of intersection among regions
+                        # in the original image, that can be used to trigger a match
+                        # or 2, is s square. 0 dim is batch
+                        map_side = probability_map.shape[1]
+                        map_area = map_side**2
+
+                        min_intersection = map_side
+
+                        # Save the relative frequency for every class
+                        # To trigger a match, at least a fraction of intersection should be present
+                        for label in group:
+                            group[label]["prob"] /= group[label]["count"]
+                            group[label]["rf"] = group[label][
+                                "count"] / map_area
+
+                        # merge overlapping rectangles for each class.
+                        # return a map of {"label": [rect, prob, count]
+                        localize = utils.group_overlapping_regions(
                             glance, eps=RECT_SIMILARITY)
 
-                        # loop preserving order, because rois are evaluated in order
-                        rois = []
-                        rois_count = 0
-                        for label, rect_prob_list in sorted(
-                                global_rect_prob.items()):
-                            # extract rectangles for each image and classify it.
-                            # if the classification gives the same global label as top-1(2,3?) draw it
-                            # else skip it.
-
-                            for rect_prob in rect_prob_list:
-                                rect = rect_prob[0]
-                                y2 = rect[3]
-                                y1 = rect[1]
-                                x2 = rect[2]
-                                x1 = rect[0]
-                                roi = image[y1:y2, x1:x2]
-
-                                rois.append(
-                                    sess.run(roi_preproc,
-                                             feed_dict={roi_: roi}))
-                                rois_count += 1
-
-                        # evaluate top values for every image in the batch of rois
-                        rois_top_values, rois_top_indices = sess.run(
-                            [top_k[0], top_k[1]], feed_dict={images_: rois})
-
-                        roi_id = 0
                         detected_labels = set()
-                        for label, rect_prob_list in sorted(
-                                global_rect_prob.items()):
-                            # loop over rect with the current label
+                        for label, rect_prob_list in localize.items():
                             for rect_prob in rect_prob_list:
-                                # remove background class from avaiable classes
-                                # need to use tolist because rois_top_indices[roi_id] is
-                                # a ndarray (Tensorflow always returns ndarray, even if
-                                # the data is 1-D)
-                                bg_pos = rois_top_indices[roi_id].tolist(
-                                ).index(pascal.BACKGROUND_CLASS_ID)
-                                roi_top_probs = np.delete(
-                                    rois_top_values[roi_id], bg_pos)
-                                roi_top_indices = np.delete(
-                                    rois_top_indices[roi_id], bg_pos)
-
-                                roi_label = pascal.CLASSES[roi_top_indices[0]]
-                                if label == roi_label:
+                                count = rect_prob[2]
+                                freq = group[label]["rf"]
+                                if count >= min_intersection and freq > 0.1:
                                     detected_labels.add(label)
-                                    confidence = roi_top_probs[0]
+                                    confidence = rect_prob[1]
                                     rect = rect_prob[0]
                                     left = rect[0]
                                     top = rect[1]
@@ -213,8 +182,6 @@ def main(args):
                                         "{} {} {} {} {} {}\n".format(
                                             decoded_filename, confidence, left,
                                             top, right, bottom))
-
-                                roi_id += 1
 
                         processed += 1
 

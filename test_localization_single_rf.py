@@ -11,7 +11,6 @@ import argparse
 import os
 import sys
 import time
-import math
 from collections import defaultdict
 import tensorflow as tf
 import cv2
@@ -24,7 +23,6 @@ import utils
 
 # detection parameters
 RECT_SIMILARITY = 0.9
-MIN_PROB = 0.5
 
 
 def main(args):
@@ -99,11 +97,6 @@ def main(args):
                     [image.shape[1] / input_image_side,
                      image.shape[0] / input_image_side])
 
-                # shape of the rectangle analyzed in the original image
-                analyzed_shape = np.array([image.shape[1], image.shape[0]]) * (
-                    math.sqrt(model.INPUT_SIDE *
-                              model.LAST_KERNEL_SIDE) / input_image_side)
-
                 probability_coords = 0
                 glance = defaultdict(list)
                 # select count(*), avg(prob) from map group by label, order by count, avg.
@@ -115,8 +108,7 @@ def main(args):
                         ds_x = pmap_x * model.LAST_CONV_OUTPUT_STRIDE
 
                         if top_indices[probability_coords][
-                                0] != pascal.BACKGROUND_CLASS_ID and top_values[
-                                    probability_coords][0] > MIN_PROB:
+                                0] != pascal.BACKGROUND_CLASS_ID:
 
                             # create coordinates of rect in the downsampled image
                             # convert to numpy array in order to use broadcast ops
@@ -154,10 +146,9 @@ def main(args):
 
                 # Save the relative frequency for every class
                 # To trigger a match, at least a fraction of intersection should be present
-                looked_pos = sum(value["count"] for value in group.values())
                 for label in group:
                     group[label]["prob"] /= group[label]["count"]
-                    group[label]["rf"] = group[label]["count"] / looked_pos
+                    group[label]["rf"] = group[label]["count"] / map_area
                     print(label, group[label])
 
                 # merge overlapping rectangles for each class.
@@ -184,7 +175,6 @@ def main(args):
                                 "{}({:.3})".format(label, prob),
                                 utils.LABEL_COLORS[label],
                                 thickness=2)
-                            print(label, rect, prob, count, freq)
 
                 cv2.imshow("img", image)
                 cv2.waitKey(0)

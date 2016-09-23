@@ -23,6 +23,7 @@ from inputs import pascal, image_processing
 # detection parameters
 RECT_SIMILARITY = 0.9
 
+
 def main(args):
     """ main """
 
