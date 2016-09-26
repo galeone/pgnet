@@ -27,7 +27,7 @@ def main(args):
         return 1
 
     # export model.pb from session dir. Skip if model.pb already exists
-    model.export(train.NUM_CLASSES, train.SESSION_DIR, "model-0",
+    model.export(train.NUM_CLASSES, train.SESSION_DIR, "model-best-0",
                  train.MODEL_PATH)
 
     results_dir = "{}/results".format(

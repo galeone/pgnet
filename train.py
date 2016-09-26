@@ -39,7 +39,7 @@ MEASUREMENT_STEP = DISPLAY_STEP
 MAX_ITERATIONS = STEP_FOR_EPOCH * 500
 
 # stop when
-AVG_VALIDATION_ACCURACY_EPOCHS = 20
+AVG_VALIDATION_ACCURACY_EPOCHS = 1
 # list of average validation at the end of every epoch
 AVG_VALIDATION_ACCURACIES = [0.0
                              for _ in range(AVG_VALIDATION_ACCURACY_EPOCHS)]
@@ -179,7 +179,8 @@ def train(args):
 
                 total_start = time.time()
                 current_epoch = 0
-                sum_validation_accuracy = 0
+                max_validation_accuracy = 0.0
+                sum_validation_accuracy = 0.0
                 for step in range(MAX_ITERATIONS):
                     # get train inputs
                     train_images, train_labels = sess.run([train_images_queue,
@@ -190,7 +191,7 @@ def train(args):
                     _, loss_val, summary_line, gs_value = sess.run(
                         [train_op, loss_op, summary_op, global_step],
                         feed_dict={
-                            keep_prob_: 0.8,
+                            keep_prob_: 0.4,
                             is_training_: True,
                             images_: train_images,
                             labels_: train_labels,
@@ -225,6 +226,7 @@ def train(args):
                                    examples_per_sec, sec_per_batch))
 
                     stop_training = False
+                    save = False
                     if step % MEASUREMENT_STEP == 0 and step > 0:
                         validation_accuracy, summary_line = validate()
                         # save summary for validation_accuracy
@@ -253,6 +255,10 @@ def train(args):
 
                         sum_validation_accuracy += validation_accuracy
 
+                        if validation_accuracy > max_validation_accuracy:
+                            max_validation_accuracy = validation_accuracy
+                            save = True
+
                     if step % STEP_FOR_EPOCH == 0 and step > 0:
                         # current validation accuracy
                         current_validation_accuracy = sum_validation_accuracy * MEASUREMENT_STEP / STEP_FOR_EPOCH
@@ -279,7 +285,7 @@ def train(args):
                             AVG_VALIDATION_ACCURACY_EPOCHS] = current_validation_accuracy
 
                         current_epoch += 1
-                        sum_validation_accuracy = 0
+                        sum_validation_accuracy = 0.0
 
                     if step % SAVE_MODEL_STEP == 0 or (
                             step + 1) == MAX_ITERATIONS or stop_training:
@@ -287,6 +293,14 @@ def train(args):
                         # export a checkpint in the format SESSION_DIR/model-<global_step>.meta
                         # always pass 0 to global step in order to have only one file in the folder
                         saver.save(sess, SESSION_DIR + "/model", global_step=0)
+
+                    if save:
+                        # save the current session (until this step) in the session dir
+                        # export a checkpint in the format SESSION_DIR/model-<global_step>.meta
+                        saver.save(
+                            sess, SESSION_DIR + "/model-best", global_step=0)
+                        print(
+                            'Model with the highest validation accuracy saved.')
 
                     if stop_training:
                         break
