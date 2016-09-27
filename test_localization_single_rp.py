@@ -101,13 +101,13 @@ def main(args):
             # of points. Every point has a depth of num classes.
 
             # for every image in the input batch
+            probability_coords = 0
             for _ in range(len(input_image)):
                 # scaling factor between original image and resized image
                 full_image_scaling_factors = np.array(
                     [image.shape[1] / input_image_side,
                      image.shape[0] / input_image_side])
 
-                probability_coords = 0
                 glance = defaultdict(list)
                 # select count(*), avg(prob) from map group by label, order by count, avg.
                 group = defaultdict(lambda: defaultdict(float))

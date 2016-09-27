@@ -89,6 +89,7 @@ def main(args):
                     # of points. Every point has a depth of num classes.
 
                     # for every image in the input batch
+                    probability_coords = 0
                     for batch_elem_id in range(len(image_batch)):
                         # scaling factor between original image and resized image
                         decoded_filename = filename_batch[
@@ -102,7 +103,6 @@ def main(args):
                             [image.shape[1] / input_side,
                              image.shape[0] / input_side])
 
-                        probability_coords = 0
                         glance = defaultdict(list)
 
                         group = defaultdict(lambda: defaultdict(float))
