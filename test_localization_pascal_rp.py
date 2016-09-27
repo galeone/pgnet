@@ -36,7 +36,7 @@ def main(args):
     results_dir = "{}/results".format(
         os.path.dirname(os.path.abspath(__file__)))
     files = {label: open(
-        results_dir + "/VOC2012/Main/comp3_cls_test_{}.txt".format(label), "w")
+        results_dir + "/VOC2012/Main/comp3_det_test_{}.txt".format(label), "w")
              for label in pascal.CLASSES}
 
     graph = model.load(train.MODEL_PATH, args.device)
