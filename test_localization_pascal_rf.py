@@ -58,7 +58,7 @@ def main(args):
         input_side = model.INPUT_SIDE + model.DOWNSAMPLING_FACTOR * model.LAST_CONV_INPUT_STRIDE * k
 
         test_queue, test_filename_queue = pascal.test(
-            args.test_ds, 1, input_side,
+            args.test_ds, 29, input_side,
             args.test_ds + "/ImageSets/Main/test.txt")
 
         init_op = tf.group(tf.initialize_all_variables(),
