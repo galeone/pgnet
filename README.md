@@ -1,14 +1,12 @@
 #pgnet
 
-## Dataset 
+## Get the dataset
 
 pgnet uses the PASCAL VOC 2012 train & test set, for train and test respectively.
 
-`dataset/pascal_trainval.py` generates a new dataset of cropped detected images and a csv file `ts.csv`.
+`inputs/pascal_trainval.py` generates a new dataset of cropped detected images and a csv file `ts.csv`.
 
 The cropper can handle every dataset that follows the PASCAL VOC 2012 structure.
-
-The script outputs the average size of the cropped images.
 
 Here's some code to get the datasets and to build the cropped dataset.
 
@@ -33,21 +31,33 @@ cd ~
 
 ## Train the network
 
+Hith: lunch it into a tmux/screen session
 
 ```
-python train/train.py
+python train.py
 ```
 
-## Network structure
+Train will stop when the average validation accuracy stops to increase for a predefined number of epoch (see the constant in the `train.py` file).
 
-## PASCAL VOC 2012 challenge results
+If you want to increase the accuracy, restart the train dropping the `keep_prob_` value in the train step.
 
-Test the architecture
+
+## Test
+
+Classification task: use realtive frequencies to classify images
 
 ```
 python test_classification_pascal_rf.py --test-ds ~/data/PASCAL_2012/test/VOCdevkit/VOC2012/
 ```
 
-`pascal_test.py` creates the txt files in the result folder, following the guidelines of the PASCAL VOC 2012 challenge.
+Localization task: use relative frequencies to detect regions in the input image.
+
+```
+python test_localization_pascal_rf.py --test-ds ~/data/PASCAL_2012/test/VOCdevkit/VOC2012/
+```
+
+The `results` folder will contain the PASCAL VOC 2012 competition 1 and 3 results.
+
+## Submit the reults
 
 Creates the archives with `tar -cvzf results.tgz results` and submit the result to the evaluation server: http://host.robots.ox.ac.uk:8080/
