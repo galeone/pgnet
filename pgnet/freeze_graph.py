@@ -52,11 +52,10 @@ tf.app.flags.DEFINE_string("input_checkpoint", "",
                            """TensorFlow variables file to load.""")
 tf.app.flags.DEFINE_string("output_graph", "",
                            """Output 'GraphDef' file name.""")
-tf.app.flags.DEFINE_boolean(
-    "input_binary", False, """Whether the input files are in binary format.""")
-tf.app.flags.DEFINE_string(
-    "output_node_names", "",
-    """The name of the output nodes, comma separated.""")
+tf.app.flags.DEFINE_boolean("input_binary", False,
+                            """Whether the input files are in binary format.""")
+tf.app.flags.DEFINE_string("output_node_names", "",
+                           """The name of the output nodes, comma separated.""")
 tf.app.flags.DEFINE_string("restore_op_name", "save/restore_all",
                            """The name of the master restore operator.""")
 tf.app.flags.DEFINE_string("filename_tensor_name", "save/Const:0",

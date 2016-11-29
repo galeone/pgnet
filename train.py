@@ -25,7 +25,7 @@ SUMMARY_DIR = CURRENT_DIR + "/summary"
 MODEL_PATH = CURRENT_DIR + "/model.pb"
 
 # cropped pascal parameters
-CSV_PATH = "~/data/PASCAL_2012_cropped"
+CSV_PATH = "~/data/datasets/PASCAL_2012_cropped"
 
 # Number of classes in the dataset plus 1.
 # NUM_CLASSES + 1 is reserved for an (unused) background class.
@@ -41,8 +41,7 @@ MAX_ITERATIONS = STEP_FOR_EPOCH * 500
 # stop when
 AVG_VALIDATION_ACCURACY_EPOCHS = 1
 # list of average validation at the end of every epoch
-AVG_VALIDATION_ACCURACIES = [0.0
-                             for _ in range(AVG_VALIDATION_ACCURACY_EPOCHS)]
+AVG_VALIDATION_ACCURACIES = [0.0 for _ in range(AVG_VALIDATION_ACCURACY_EPOCHS)]
 
 # tensorflow saver constant
 SAVE_MODEL_STEP = math.ceil(STEP_FOR_EPOCH / 2)
@@ -86,8 +85,7 @@ def train(args):
                     0, trainable=False, name="global_step")
 
                 # model inputs, used in train and validation
-                labels_ = tf.placeholder(
-                    tf.int64, shape=[None], name="labels_")
+                labels_ = tf.placeholder(tf.int64, shape=[None], name="labels_")
 
                 is_training_, keep_prob_, images_, logits = model.define(
                     NUM_CLASSES, train_phase=True)
@@ -99,7 +97,7 @@ def train(args):
                 train_op = model.train(loss_op, global_step)
 
             # collect summaries for the previous defined variables
-            summary_op = tf.merge_all_summaries()
+            summary_op = tf.summary.merge_all()
 
             with tf.variable_scope("accuracy"):
                 # since pgnet if fully convolutional remove dimensions of size 1
@@ -122,12 +120,11 @@ def train(args):
                 # use a separate summary op for the accuracy (that's shared between test
                 # and validation)
 
-                # change only the content of the placeholder that names the summary
-                accuracy_name_ = tf.placeholder(tf.string, [])
-
                 # attach a summary to the placeholder
-                accuracy_summary_op = tf.scalar_summary(accuracy_name_,
-                                                        accuracy)
+                train_accuracy_summary_op = tf.summary.scalar("train_accuracy",
+                                                              accuracy)
+                validation_accuracy_summary_op = tf.summary.scalar(
+                    "validation_accuracy", accuracy)
 
             # create a saver: to store current computation and restore the graph
             # useful when the train step has been interrupeted
@@ -135,7 +132,7 @@ def train(args):
             saver = tf.train.Saver(variables_to_save)
 
             # tensor flow operator to initialize all the variables in a session
-            init_op = tf.initialize_all_variables()
+            init_op = tf.global_variables_initializer()
 
             with tf.Session(
                     config=tf.ConfigProto(allow_soft_placement=True)) as sess:
@@ -150,13 +147,12 @@ def train(args):
                         [validation_images_queue, validation_labels_queue])
 
                     validation_accuracy, summary_line = sess.run(
-                        [accuracy, accuracy_summary_op],
+                        [accuracy, validation_accuracy_summary_op],
                         feed_dict={
                             images_: validation_images,
                             labels_: validation_labels,
                             keep_prob_: 1.0,
                             is_training_: False,
-                            accuracy_name_: "validation_accuracy"
                         })
                     return validation_accuracy, summary_line
 
@@ -174,7 +170,7 @@ def train(args):
                 else:
                     print("[I] Unable to restore from checkpoint")
 
-                summary_writer = tf.train.SummaryWriter(
+                summary_writer = tf.summary.FileWriter(
                     SUMMARY_DIR + "/train", graph=sess.graph)
 
                 total_start = time.time()
@@ -183,8 +179,8 @@ def train(args):
                 sum_validation_accuracy = 0.0
                 for step in range(MAX_ITERATIONS):
                     # get train inputs
-                    train_images, train_labels = sess.run([train_images_queue,
-                                                           train_labels_queue])
+                    train_images, train_labels = sess.run(
+                        [train_images_queue, train_labels_queue])
 
                     start = time.time()
                     # train, get loss value, get summaries
@@ -203,8 +199,7 @@ def train(args):
                         summary_line, global_step=gs_value)
 
                     if np.isnan(loss_val):
-                        print(
-                            'Model diverged with loss = NaN', file=sys.stderr)
+                        print('Model diverged with loss = NaN', file=sys.stderr)
                         # print reshaped logits value for debug purposes
                         print(
                             sess.run(reshaped_logits,
@@ -235,13 +230,12 @@ def train(args):
 
                         # test accuracy
                         test_accuracy, summary_line = sess.run(
-                            [accuracy, accuracy_summary_op],
+                            [accuracy, train_accuracy_summary_op],
                             feed_dict={
                                 images_: train_images,
                                 labels_: train_labels,
                                 keep_prob_: 1.0,
                                 is_training_: False,
-                                accuracy_name_: "training_accuracy"
                             })
 
                         # save summary for training accuracy
@@ -268,7 +262,8 @@ def train(args):
 
                         # sum previous avg accuracy
                         history_avg_accuracy = sum(
-                            AVG_VALIDATION_ACCURACIES) / AVG_VALIDATION_ACCURACY_EPOCHS
+                            AVG_VALIDATION_ACCURACIES
+                        ) / AVG_VALIDATION_ACCURACY_EPOCHS
 
                         # if avg accuracy is not increased, after
                         # AVG_VALIDATION_ACCURACY_NOT_INCREASED_AFTER_EPOCH, exit
@@ -306,8 +301,7 @@ def train(args):
                         break
 
                 # end of train
-                print("Train completed in {}".format(time.time() -
-                                                     total_start))
+                print("Train completed in {}".format(time.time() - total_start))
 
                 # save train summaries to disk
                 summary_writer.flush()

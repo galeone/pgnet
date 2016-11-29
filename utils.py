@@ -65,8 +65,9 @@ def upsample_and_shift(ds_coords, downsamplig_factor, shift_amount,
     box += [shift_amount[0], shift_amount[1], shift_amount[0], shift_amount[1]]
 
     # scale coordinates to the input image
-    input_box = np.ceil(box * [scaling_factor_x, scaling_factor_y,
-                               scaling_factor_x, scaling_factor_y]).astype(int)
+    input_box = np.ceil(box * [
+        scaling_factor_x, scaling_factor_y, scaling_factor_x, scaling_factor_y
+    ]).astype(int)
     return tuple(input_box)  # (x0, y0, x1, y1)
 
 

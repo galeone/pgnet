@@ -35,9 +35,12 @@ def main(args):
 
     results_dir = "{}/results".format(
         os.path.dirname(os.path.abspath(__file__)))
-    files = {label: open(
-        results_dir + "/VOC2012/Main/comp3_det_test_{}.txt".format(label), "w")
-             for label in pascal.CLASSES}
+    files = {
+        label:
+        open(results_dir + "/VOC2012/Main/comp3_det_test_{}.txt".format(label),
+             "w")
+        for label in pascal.CLASSES
+    }
 
     graph = model.load(train.MODEL_PATH, args.device)
     with graph.as_default():
@@ -69,7 +72,7 @@ def main(args):
                 tf.image.convert_image_dtype(roi_, tf.float32),
                 model.INPUT_SIDE))
 
-        init_op = tf.group(tf.initialize_all_variables(),
+        init_op = tf.group(tf.global_variables_initializer(),
                            tf.initialize_local_variables())
 
         with tf.Session(config=tf.ConfigProto(
@@ -77,8 +80,7 @@ def main(args):
 
             sess.run(init_op)
             coordinator = tf.train.Coordinator()
-            threads = tf.train.start_queue_runners(
-                sess=sess, coord=coordinator)
+            threads = tf.train.start_queue_runners(sess=sess, coord=coordinator)
 
             try:
                 processed = 0
@@ -103,16 +105,17 @@ def main(args):
                     probability_coords = 0
                     for batch_elem_id in range(len(image_batch)):
                         # scaling factor between original image and resized image
-                        decoded_filename = filename_batch[
-                            batch_elem_id].decode("utf-8")
+                        decoded_filename = filename_batch[batch_elem_id].decode(
+                            "utf-8")
 
                         image = sess.run(
                             image_processing.read_image_jpg(
-                                args.test_ds + "/JPEGImages/" +
-                                decoded_filename + ".jpg"))
-                        full_image_scaling_factors = np.array(
-                            [image.shape[1] / input_side,
-                             image.shape[0] / input_side])
+                                args.test_ds + "/JPEGImages/" + decoded_filename
+                                + ".jpg"))
+                        full_image_scaling_factors = np.array([
+                            image.shape[1] / input_side,
+                            image.shape[0] / input_side
+                        ])
 
                         glance = defaultdict(list)
 
@@ -128,9 +131,11 @@ def main(args):
 
                                     # create coordinates of rect in the downsampled image
                                     # convert to numpy array in order to use broadcast ops
-                                    coord = [ds_x, ds_y,
-                                             ds_x + model.LAST_KERNEL_SIDE,
-                                             ds_y + model.LAST_KERNEL_SIDE]
+                                    coord = [
+                                        ds_x, ds_y,
+                                        ds_x + model.LAST_KERNEL_SIDE,
+                                        ds_y + model.LAST_KERNEL_SIDE
+                                    ]
                                     # if something is found, append rectagle to the
                                     # map of rectalges per class
                                     rect = utils.upsample_and_shift(
@@ -175,8 +180,8 @@ def main(args):
                                 roi = image[y1:y2, x1:x2]
 
                                 rois.append(
-                                    sess.run(roi_preproc,
-                                             feed_dict={roi_: roi}))
+                                    sess.run(roi_preproc, feed_dict={roi_: roi
+                                                                    }))
                                 rois_count += 1
 
                         # evaluate top values for every image in the batch of rois

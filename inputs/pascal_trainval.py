@@ -21,9 +21,11 @@ from collections import defaultdict
 import math
 import cv2
 
-CLASSES = ["aeroplane", "bicycle", "bird", "boat", "bottle", "bus", "car",
-           "cat", "chair", "cow", "diningtable", "dog", "horse", "motorbike",
-           "person", "pottedplant", "sheep", "sofa", "train", "tvmonitor"]
+CLASSES = [
+    "aeroplane", "bicycle", "bird", "boat", "bottle", "bus", "car", "cat",
+    "chair", "cow", "diningtable", "dog", "horse", "motorbike", "person",
+    "pottedplant", "sheep", "sofa", "train", "tvmonitor"
+]
 
 # Add the definition of an (unused) background class ID
 BACKGROUND_CLASS_ID = len(CLASSES)  # classes ids are 0 based
@@ -151,8 +153,7 @@ def main(argv):
                     print(splitted, line, current_class)
                 if splitted[1] == "-1":
                     continue
-                image_xml = "{}/Annotations/{}.xml".format(argv[0],
-                                                           splitted[0])
+                image_xml = "{}/Annotations/{}.xml".format(argv[0], splitted[0])
                 image_file = "{}.jpg".format(splitted[0])
 
                 tree = etree.parse(image_xml)
@@ -200,10 +201,12 @@ def main(argv):
 
                     # save file and append row to csv
                     cv2.imwrite(out_path + "/" + new_image_file, roi)
-                    writer.writerow({"file": new_image_file,
-                                     "width": width,
-                                     "height": height,
-                                     "label": label_id})
+                    writer.writerow({
+                        "file": new_image_file,
+                        "width": width,
+                        "height": height,
+                        "label": label_id
+                    })
                     i += 1
 
     print("Average width & height")

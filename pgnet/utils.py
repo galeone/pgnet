@@ -27,11 +27,11 @@ def log_histogram(var, name):
     """log_histogram creates and histogrm summary for var, with name
     The returned value can be discarded if the function has been called inside the default graph.
 
-    Remeber to call tf.merge_all_summaries() before tf.initialize_all_variables()
+    Remeber to call tf.summary.merge_all() before tf.global_variables_initializer()
     """
 
     with tf.name_scope("summaries"):
-        return tf.histogram_summary(name, var)
+        return tf.summary.histogram(name, var)
 
 
 def weight(shape,
@@ -63,12 +63,12 @@ def kernels(shape,
         with tf.name_scope("summaries"):
             num_kernels = shape[3]
             depth = shape[2]
-            max_images = int(num_kernels / depth)
-            tf.image_summary(
+            max_outputs = int(num_kernels / depth)
+            tf.summary.image(
                 name,
                 tf.reshape(parameters,
                            [num_kernels, shape[0], shape[1], depth]),
-                max_images=max_images)
+                max_outputs=max_outputs)
     return parameters
 
 
@@ -133,8 +133,8 @@ def padder(input_v, output_v):
                               [-1, height_diff, reduced_width, -1])
     padded = tf.concat(1, [padding_top, output_v, padding_bottom])
 
-    padding_left = tf.slice(input_expanded, [0, 0, 0, 0], [-1, height,
-                                                           width_diff, -1])
+    padding_left = tf.slice(input_expanded, [0, 0, 0, 0],
+                            [-1, height, width_diff, -1])
     padding_right = tf.slice(input_expanded, [0, 0, width - width_diff, 0],
                              [-1, height, height_diff, -1])
 

@@ -51,7 +51,7 @@ def main(args):
                                                  args.test_ds + "/ts.csv")
 
         # initialize all variables
-        init_op = tf.group(tf.initialize_all_variables(),
+        init_op = tf.group(tf.global_variables_initializer(),
                            tf.initialize_local_variables())
 
         with tf.Session(config=tf.ConfigProto(
@@ -90,8 +90,8 @@ def main(args):
                 precision_at_1 = count_top_1 / total_sample_count
                 recall_at_5 = count_top_5 / total_sample_count
 
-                print('precision @ 1 = {} recall @ 5 = {} [{} examples]'.
-                      format(precision_at_1, recall_at_5, total_sample_count))
+                print('precision @ 1 = {} recall @ 5 = {} [{} examples]'.format(
+                    precision_at_1, recall_at_5, total_sample_count))
             finally:
                 # When done, ask the threads to stop.
                 coord.request_stop()

@@ -64,12 +64,12 @@ def main(args):
                 tf.minimum(original_image_dim[0], original_image_dim[1]),
                 tf.constant(model.INPUT_SIDE)),
             lambda: tf.constant(model.INPUT_SIDE),
-            lambda: tf.constant(model.INPUT_SIDE + model.DOWNSAMPLING_FACTOR * model.LAST_CONV_INPUT_STRIDE * k))
+            lambda: tf.constant(model.INPUT_SIDE + model.DOWNSAMPLING_FACTOR * model.LAST_CONV_INPUT_STRIDE * k)
+        )
 
         eval_image = tf.expand_dims(
             image_processing.zm_mp(
-                image_processing.resize_bl(original_image, eval_image_side)),
-            0)
+                image_processing.resize_bl(original_image, eval_image_side)), 0)
 
         with tf.Session(config=tf.ConfigProto(
                 allow_soft_placement=True)) as sess:
@@ -94,9 +94,10 @@ def main(args):
             probability_coords = 0
             for _ in range(len(input_image)):
                 # scaling factor between original image and resized image
-                full_image_scaling_factors = np.array(
-                    [image.shape[1] / input_image_side,
-                     image.shape[0] / input_image_side])
+                full_image_scaling_factors = np.array([
+                    image.shape[1] / input_image_side,
+                    image.shape[0] / input_image_side
+                ])
 
                 glance = defaultdict(list)
                 # select count(*), avg(prob) from map group by label, order by count, avg.
@@ -112,8 +113,10 @@ def main(args):
 
                             # create coordinates of rect in the downsampled image
                             # convert to numpy array in order to use broadcast ops
-                            coord = [ds_x, ds_y, ds_x + model.LAST_KERNEL_SIDE,
-                                     ds_y + model.LAST_KERNEL_SIDE]
+                            coord = [
+                                ds_x, ds_y, ds_x + model.LAST_KERNEL_SIDE,
+                                ds_y + model.LAST_KERNEL_SIDE
+                            ]
                             # if something is found, append rectagle to the
                             # map of rectalges per class
                             rect = utils.upsample_and_shift(

@@ -121,7 +121,7 @@ def zm_mp(image):
     """Keeps an image with values in [0, 1). Normalizes it in order to be
     centered and have zero mean.
     Normalizes its values in range [-1, 1]."""
-    image = tf.image.per_image_whitening(image)
+    image = tf.image.per_image_standardization(image)
 
     # rescale to [-1,1] instead of [0, 1)
     image = tf.sub(image, 0.5)

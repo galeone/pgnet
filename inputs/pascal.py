@@ -86,7 +86,7 @@ def _generate_image_and_label_batch(image,
 
     # Display the training images in the visualizer.
     # Add a scope to the summary.
-    tf.image_summary(task + '/images', images)
+    tf.summary.image(task + '/images', images)
 
     return images, sparse_labels
 

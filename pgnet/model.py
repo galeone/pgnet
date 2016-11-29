@@ -268,76 +268,76 @@ def get(num_classes, images_, keep_prob_, is_training_, train_phase=False):
             #output: 200x200x64, filters: (3x3x3)x64
 
         with tf.variable_scope("conv1.1"):
-            conv1 = eq_conv_layer(conv1, KERNEL_SIDE, num_kernels,
-                                  (1, 1, 1, 1), is_training_)
+            conv1 = eq_conv_layer(conv1, KERNEL_SIDE, num_kernels, (1, 1, 1, 1),
+                                  is_training_)
             #output: 200x200x64, filters: (3x3x64)x64
             print(conv1)
 
         with tf.variable_scope("conv2"):
-            conv2 = eq_conv_layer(conv1, KERNEL_SIDE, num_kernels,
-                                  (1, 2, 2, 1), is_training_)
+            conv2 = eq_conv_layer(conv1, KERNEL_SIDE, num_kernels, (1, 2, 2, 1),
+                                  is_training_)
             #output: 100x100x64, filters: (3x3x64)x64
             print(conv2)
 
         with tf.variable_scope("conv2.1"):
-            conv2 = eq_conv_layer(conv2, KERNEL_SIDE, num_kernels,
-                                  (1, 1, 1, 1), is_training_)
+            conv2 = eq_conv_layer(conv2, KERNEL_SIDE, num_kernels, (1, 1, 1, 1),
+                                  is_training_)
             #output: 100x100x64, filters: (3x3x64)x64
             print(conv2)
 
     num_kernels *= 2  # 128
     with tf.variable_scope(str(num_kernels)):
         with tf.variable_scope("conv3"):
-            conv3 = eq_conv_layer(conv2, KERNEL_SIDE, num_kernels,
-                                  (1, 1, 1, 1), is_training_)
+            conv3 = eq_conv_layer(conv2, KERNEL_SIDE, num_kernels, (1, 1, 1, 1),
+                                  is_training_)
             if train_phase is True:
                 conv3 = tf.nn.dropout(conv3, keep_prob_, name="dropout")
             print(conv3)
             #output: 100x100x128, filters: (3x3x64)x128
 
         with tf.variable_scope("conv3.1"):
-            conv3 = eq_conv_layer(conv3, KERNEL_SIDE, num_kernels,
-                                  (1, 1, 1, 1), is_training_)
+            conv3 = eq_conv_layer(conv3, KERNEL_SIDE, num_kernels, (1, 1, 1, 1),
+                                  is_training_)
             print(conv3)
             #output: 100x100x128, filters: (3x3x128)x128
 
         with tf.variable_scope("conv4"):
-            conv4 = eq_conv_layer(conv3, KERNEL_SIDE, num_kernels,
-                                  (1, 2, 2, 1), is_training_)
+            conv4 = eq_conv_layer(conv3, KERNEL_SIDE, num_kernels, (1, 2, 2, 1),
+                                  is_training_)
         #output: 50x50x128, filters: (3x3x128)x128
         print(conv4)
 
         with tf.variable_scope("conv4.1"):
-            conv4 = eq_conv_layer(conv4, KERNEL_SIDE, num_kernels,
-                                  (1, 1, 1, 1), is_training_)
+            conv4 = eq_conv_layer(conv4, KERNEL_SIDE, num_kernels, (1, 1, 1, 1),
+                                  is_training_)
         #output: 50x50x128, filters: (3x3x128)x128
         print(conv4)
 
     num_kernels *= 2  #256
     with tf.variable_scope(str(num_kernels)):
         with tf.variable_scope("conv5"):
-            conv5 = eq_conv_layer(conv4, KERNEL_SIDE, num_kernels,
-                                  (1, 1, 1, 1), is_training_)
+            conv5 = eq_conv_layer(conv4, KERNEL_SIDE, num_kernels, (1, 1, 1, 1),
+                                  is_training_)
             if train_phase is True:
                 conv5 = tf.nn.dropout(conv5, keep_prob_, name="dropout")
             print(conv5)
             #output: 50x50x256, filters: (3x3x128)x256
 
         with tf.variable_scope("conv5.1"):
-            conv5 = eq_conv_layer(conv5, KERNEL_SIDE, num_kernels,
-                                  (1, 1, 1, 1), is_training_)
+            conv5 = eq_conv_layer(conv5, KERNEL_SIDE, num_kernels, (1, 1, 1, 1),
+                                  is_training_)
             print(conv5)
             #output: 50x50x256, filters: (3x3x256)x256
 
         with tf.variable_scope("conv6"):
-            conv6 = eq_conv_layer(conv5, KERNEL_SIDE, num_kernels,
-                                  (1, 2, 2, 1), is_training_)
+            conv6 = eq_conv_layer(conv5, KERNEL_SIDE, num_kernels, (1, 2, 2, 1),
+                                  is_training_)
             #output: 25x25x256, filters: (3x3x256)x256
             print(conv6)
 
         with tf.variable_scope("conv6.1"):
-            conv6 = eq_conv_layer(conv6, KERNEL_SIDE, num_kernels,
-                                  (1, 1, 1, 1), is_training_)
+            conv6 = eq_conv_layer(conv6, KERNEL_SIDE, num_kernels, (1, 1, 1, 1),
+                                  is_training_)
             print(conv6)
             #output: 25x25x256, filters: (3x3x256)x256
 
@@ -408,7 +408,7 @@ def loss(logits, labels):
 
         mean_cross_entropy = tf.reduce_mean(
             cross_entropy, name="mean_cross_entropy")
-        tf.scalar_summary("loss/mean_cross_entropy", mean_cross_entropy)
+        tf.summary.scalar("loss/mean_cross_entropy", mean_cross_entropy)
 
     return mean_cross_entropy
 
@@ -524,8 +524,7 @@ def export(num_classes, session_dir, input_checkpoint, model_abspath):
                 freeze_graph.freeze_graph(
                     session_dir + "/skeleton.pbtxt", "", False,
                     session_dir + "/" + input_checkpoint, OUTPUT_TENSOR_NAME,
-                    "save/restore_all", "save/Const:0", model_abspath, True,
-                    "")
+                    "save/restore_all", "save/Const:0", model_abspath, True, "")
     else:
         print("{} already exists. Skipping export".format(model_abspath))
 
