@@ -31,7 +31,7 @@ cd ~
 
 ## Train the network
 
-Hith: lunch it into a tmux/screen session
+Hint: launch it inside a tmux/screen session
 
 ```
 python train.py
